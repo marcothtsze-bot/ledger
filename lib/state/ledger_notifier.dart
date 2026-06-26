@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../data/backup.dart';
 import '../data/ledger_repository.dart';
 import '../models/enums.dart';
 import '../models/txn.dart';
@@ -355,5 +356,35 @@ class LedgerNotifier extends Notifier<LedgerState> {
       _persist();
       _startToastTimer();
     }
+  }
+
+  /// Shows a short auto-dismissing toast with [message].
+  void flashToast(String message) {
+    state = state.copyWith(toast: message);
+    _startToastTimer();
+  }
+
+  // ---- Backup & restore ----
+  void openBackup() => state = state.copyWith(backupOpen: true);
+  void closeBackup() => state = state.copyWith(backupOpen: false);
+
+  /// The full data as a portable JSON backup string.
+  String exportBackup() => exportBackupJson(state.toSnapshot());
+
+  /// Replaces all data from a backup JSON string. Returns `null` on success,
+  /// or a user-facing error message.
+  String? restoreBackup(String raw) {
+    final LedgerSnapshot snap;
+    try {
+      snap = importBackupJson(raw);
+    } on FormatException catch (e) {
+      return e.message;
+    } on Object {
+      return "Couldn't read that backup.";
+    }
+    state = LedgerState.fromSnapshot(snap).copyWith(toast: 'Backup restored');
+    _persist();
+    _startToastTimer();
+    return null;
   }
 }

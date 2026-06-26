@@ -74,6 +74,7 @@ class LedgerState {
   final String catEditorId; // category editor: '' closed, 'new', or an id
   final String recurringEditorId; // recurring editor: '' closed, else an id
   final String payRecurringId; // pay/settle sheet: '' closed, else an id
+  final bool backupOpen; // Backup & Restore sheet visibility
   final ActivePicker picker;
   final PickingSide picking;
 
@@ -130,6 +131,7 @@ class LedgerState {
     required this.catEditorId,
     required this.recurringEditorId,
     required this.payRecurringId,
+    required this.backupOpen,
     required this.picker,
     required this.picking,
     required this.txnType,
@@ -180,6 +182,7 @@ class LedgerState {
     catEditorId: '',
     recurringEditorId: '',
     payRecurringId: '',
+    backupOpen: false,
     picker: ActivePicker.none,
     picking: PickingSide.from,
     txnType: TxnType.expense,
@@ -1056,6 +1059,7 @@ class LedgerState {
     String? catEditorId,
     String? recurringEditorId,
     String? payRecurringId,
+    bool? backupOpen,
     ActivePicker? picker,
     PickingSide? picking,
     TxnType? txnType,
@@ -1104,6 +1108,7 @@ class LedgerState {
       catEditorId: catEditorId ?? this.catEditorId,
       recurringEditorId: recurringEditorId ?? this.recurringEditorId,
       payRecurringId: payRecurringId ?? this.payRecurringId,
+      backupOpen: backupOpen ?? this.backupOpen,
       picker: picker ?? this.picker,
       picking: picking ?? this.picking,
       txnType: txnType ?? this.txnType,

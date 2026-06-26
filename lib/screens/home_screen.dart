@@ -33,7 +33,7 @@ class HomeScreen extends ConsumerWidget {
     return ListView(
       padding: EdgeInsets.zero,
       children: [
-        _header(context, s),
+        _header(context, s, n),
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 6, 20, kBottomNavInset),
           child: Column(
@@ -113,7 +113,7 @@ class HomeScreen extends ConsumerWidget {
     );
   }
 
-  Widget _header(BuildContext context, LedgerState s) {
+  Widget _header(BuildContext context, LedgerState s, LedgerNotifier n) {
     final reduce = MediaQuery.of(context).disableAnimations;
     return Container(
       padding: const EdgeInsets.fromLTRB(22, 50, 22, 26),
@@ -150,17 +150,21 @@ class HomeScreen extends ConsumerWidget {
                     ),
                   ),
                   const SizedBox(width: 9),
-                  Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.12),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Symbols.settings_rounded,
-                      size: 19,
-                      color: AppColors.text,
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: n.openBackup,
+                    child: Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.12),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Symbols.settings_rounded,
+                        size: 19,
+                        color: AppColors.text,
+                      ),
                     ),
                   ),
                 ],
