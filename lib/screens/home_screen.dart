@@ -5,8 +5,11 @@ import 'package:material_symbols_icons/symbols.dart';
 import '../charts/line_charts.dart';
 import '../core/money.dart';
 import '../models/account.dart';
+import '../models/recurring.dart';
 import '../state/ledger_notifier.dart';
 import '../state/ledger_state.dart';
+import '../theme/hex_color.dart';
+import '../theme/icon_catalog.dart';
 import '../theme/tokens.dart';
 import '../view/account_type.dart';
 import '../view/txn_view.dart';
@@ -32,7 +35,7 @@ class HomeScreen extends ConsumerWidget {
       children: [
         _header(context, s),
         Padding(
-          padding: const EdgeInsets.fromLTRB(20, 6, 20, 12),
+          padding: const EdgeInsets.fromLTRB(20, 6, 20, kBottomNavInset),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -89,21 +92,7 @@ class HomeScreen extends ConsumerWidget {
                 onAction: n.openRecurring,
               ),
               const SizedBox(height: 11),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  for (var i = 0; i < s.recurring.take(3).length; i++) ...[
-                    if (i > 0) const SizedBox(width: 10),
-                    Expanded(
-                      child: _upcomingCard(
-                        s.recurring[i].name,
-                        s.recurring[i].next,
-                        hk(s.recurring[i].amount),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
+              _upcomingRow(s, n),
               const SizedBox(height: 22),
               SectionHeader(
                 'Recent',
@@ -193,8 +182,15 @@ class HomeScreen extends ConsumerWidget {
             tween: Tween(begin: 0, end: s.netWorth),
             duration: reduce ? Duration.zero : AppDurations.countUp,
             curve: Curves.easeOutCubic,
-            builder: (_, v, _) =>
-                Text(signedHk(v), style: AppText.heroNetWorth),
+            builder: (_, v, _) => FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                signedHk(v),
+                maxLines: 1,
+                style: AppText.heroNetWorth,
+              ),
+            ),
           ),
           const SizedBox(height: 13),
           Row(
@@ -265,12 +261,17 @@ class HomeScreen extends ConsumerWidget {
               style: AppText.ui(11, FontWeight.w600, color: labelColor),
             ),
             const SizedBox(height: 4),
-            Text(
-              value,
-              style: AppText.mono(
-                15,
-                FontWeight.w600,
-                color: valueColor ?? AppColors.text,
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                value,
+                maxLines: 1,
+                style: AppText.mono(
+                  15,
+                  FontWeight.w600,
+                  color: valueColor ?? AppColors.text,
+                ),
               ),
             ),
           ],
@@ -337,7 +338,7 @@ class HomeScreen extends ConsumerWidget {
                 ],
               ),
             ),
-            Text(signedHk(a.balance), style: AppText.money),
+            Text(signedMoney(a.balance, a.currency), style: AppText.money),
           ],
         ),
       ),
@@ -421,7 +422,7 @@ class HomeScreen extends ConsumerWidget {
               ),
             ),
             Text(
-              signedHk(a.balance),
+              signedMoney(a.balance, a.currency),
               style: AppText.mono(
                 15,
                 FontWeight.w600,
@@ -434,38 +435,113 @@ class HomeScreen extends ConsumerWidget {
     );
   }
 
-  Widget _upcomingCard(String name, String next, String amount) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
-      decoration: BoxDecoration(
-        color: AppColors.card,
-        borderRadius: BorderRadius.circular(AppRadii.card),
-        border: Border.all(color: AppColors.hairline),
+  /// Upcoming payments, soonest first (due/overdue float to the front), each
+  /// card tappable to pay or settle.
+  Widget _upcomingRow(LedgerState s, LedgerNotifier n) {
+    final today = DateTime.now();
+    final items = [...s.recurring]..sort((a, b) {
+      final ad = a.nextDate, bd = b.nextDate;
+      if (ad == null && bd == null) return 0;
+      if (ad == null) return 1;
+      if (bd == null) return -1;
+      return ad.compareTo(bd);
+    });
+    if (items.isEmpty) {
+      return Text('No upcoming payments', style: AppText.muted12);
+    }
+    // Horizontal cards (design intent) so every upcoming item is reachable —
+    // soonest/due first — not just the first three.
+    return SizedBox(
+      height: 134,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: EdgeInsets.zero,
+        clipBehavior: Clip.none,
+        itemCount: items.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 10),
+        itemBuilder: (_, i) =>
+            SizedBox(width: 140, child: _upcomingCard(s, items[i], today, n)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            name,
-            style: AppText.ui(14, FontWeight.w600),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+    );
+  }
+
+  Widget _upcomingCard(
+    LedgerState s,
+    Recurring r,
+    DateTime today,
+    LedgerNotifier n,
+  ) {
+    final t = DateTime(today.year, today.month, today.day);
+    final isDue = r.nextDate != null && !r.nextDate!.isAfter(t);
+    final cat = s.categoryById(r.catId);
+    final tint = hexColor(r.color ?? cat.color);
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => n.openSettleRecurring(r.id),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        decoration: BoxDecoration(
+          color: AppColors.card,
+          borderRadius: BorderRadius.circular(AppRadii.card),
+          border: Border.all(
+            color: isDue ? AppColors.brand : AppColors.hairline,
           ),
-          const SizedBox(height: 2),
-          Text(
-            next,
-            style: AppText.muted12,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          const SizedBox(height: 9),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: Text(amount, maxLines: 1, style: AppText.money),
-          ),
-        ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 26,
+                  height: 26,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: tint.withValues(alpha: 0.16),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(iconFor(r.icon ?? cat.icon), size: 15, color: tint),
+                ),
+                const Spacer(),
+                if (isDue)
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: AppColors.brand.withValues(alpha: 0.16),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      'Due',
+                      style: AppText.ui(10, FontWeight.w700,
+                          color: AppColors.brand),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 9),
+            Text(
+              r.name,
+              style: AppText.ui(14, FontWeight.w600),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 2),
+            Text(
+              isDue ? 'Tap to pay' : 'next ${r.next}',
+              style: AppText.muted12,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 9),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(hk(r.amount), maxLines: 1, style: AppText.money),
+            ),
+          ],
+        ),
       ),
     );
   }

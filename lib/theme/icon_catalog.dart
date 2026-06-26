@@ -1,0 +1,166 @@
+import 'package:flutter/widgets.dart';
+import 'package:material_symbols_icons/symbols.dart';
+
+/// One source of truth mapping Material Symbols ligature names to concrete
+/// [IconData]. Every entry is a `const Symbols.*` reference, so icon
+/// tree-shaking keeps exactly these glyphs in the release build even though the
+/// app looks them up by string at runtime (user-chosen account/category icons).
+const Map<String, IconData> kIconCatalog = {
+  // Spending / income categories
+  'restaurant': Symbols.restaurant,
+  'shopping_cart': Symbols.shopping_cart,
+  'local_cafe': Symbols.local_cafe,
+  'directions_bus': Symbols.directions_bus,
+  'local_gas_station': Symbols.local_gas_station,
+  'shopping_bag': Symbols.shopping_bag,
+  'home': Symbols.home,
+  'bolt': Symbols.bolt,
+  'wifi': Symbols.wifi,
+  'subscriptions': Symbols.subscriptions,
+  'movie': Symbols.movie,
+  'flight': Symbols.flight,
+  'ecg_heart': Symbols.ecg_heart,
+  'fitness_center': Symbols.fitness_center,
+  'school': Symbols.school,
+  'redeem': Symbols.redeem,
+  'pets': Symbols.pets,
+  'child_care': Symbols.child_care,
+  'savings': Symbols.savings,
+  'payments': Symbols.payments,
+  // Extra category-friendly glyphs
+  'restaurant_menu': Symbols.restaurant_menu,
+  'liquor': Symbols.liquor,
+  'medical_services': Symbols.medical_services,
+  'sports_esports': Symbols.sports_esports,
+  'music_note': Symbols.music_note,
+  'card_giftcard': Symbols.card_giftcard,
+  'directions_car': Symbols.directions_car,
+  'flight_takeoff': Symbols.flight_takeoff,
+  'volunteer_activism': Symbols.volunteer_activism,
+  'spa': Symbols.spa,
+  'checkroom': Symbols.checkroom,
+  'pedal_bike': Symbols.pedal_bike,
+  // Accounts / money
+  'account_balance': Symbols.account_balance,
+  'account_balance_wallet': Symbols.account_balance_wallet,
+  'credit_card': Symbols.credit_card,
+  'currency_exchange': Symbols.currency_exchange,
+  'trending_up': Symbols.trending_up,
+  'currency_bitcoin': Symbols.currency_bitcoin,
+  'request_quote': Symbols.request_quote,
+  'real_estate_agent': Symbols.real_estate_agent,
+  'diamond': Symbols.diamond,
+  'store': Symbols.store,
+  'paid': Symbols.paid,
+  'attach_money': Symbols.attach_money,
+  'work': Symbols.work,
+  'wallet': Symbols.wallet,
+  // Subscriptions / media
+  'smart_display': Symbols.smart_display,
+  'headphones': Symbols.headphones,
+  'cloud': Symbols.cloud,
+  'newspaper': Symbols.newspaper,
+  'phone_iphone': Symbols.phone_iphone,
+  'podcasts': Symbols.podcasts,
+  'sports_soccer': Symbols.sports_soccer,
+  'photo_camera': Symbols.photo_camera,
+};
+
+/// Resolve a ligature name to its glyph, falling back to a help icon.
+IconData iconFor(String ligature) => kIconCatalog[ligature] ?? Symbols.help;
+
+/// The curated set offered in the account icon picker (Add/Edit Account).
+const List<String> kAccountIcons = [
+  'account_balance',
+  'account_balance_wallet',
+  'credit_card',
+  'savings',
+  'payments',
+  'wallet',
+  'currency_exchange',
+  'trending_up',
+  'currency_bitcoin',
+  'request_quote',
+  'home',
+  'real_estate_agent',
+  'diamond',
+  'store',
+  'paid',
+  'work',
+];
+
+/// The colour swatches offered when creating/editing a category.
+const List<String> kCategoryColors = [
+  '#ff7a6b',
+  '#fb923c',
+  '#f0a23a',
+  '#d8a25e',
+  '#facc15',
+  '#a3e635',
+  '#34d399',
+  '#3ad29f',
+  '#2dd4bf',
+  '#38bdf8',
+  '#5b8cff',
+  '#b69bff',
+  '#c084fc',
+  '#f472b6',
+  '#fb7185',
+  '#9aa6a1',
+];
+
+/// The curated set offered in the category icon picker (manage categories).
+const List<String> kCategoryIcons = [
+  'restaurant',
+  'restaurant_menu',
+  'local_cafe',
+  'liquor',
+  'shopping_cart',
+  'shopping_bag',
+  'checkroom',
+  'directions_bus',
+  'directions_car',
+  'local_gas_station',
+  'pedal_bike',
+  'flight',
+  'flight_takeoff',
+  'home',
+  'bolt',
+  'wifi',
+  'subscriptions',
+  'movie',
+  'music_note',
+  'sports_esports',
+  'ecg_heart',
+  'medical_services',
+  'fitness_center',
+  'spa',
+  'school',
+  'redeem',
+  'card_giftcard',
+  'volunteer_activism',
+  'pets',
+  'child_care',
+  'savings',
+  'payments',
+];
+
+/// The curated set offered when choosing a subscription's icon.
+const List<String> kSubscriptionIcons = [
+  'movie',
+  'smart_display',
+  'music_note',
+  'headphones',
+  'podcasts',
+  'cloud',
+  'subscriptions',
+  'newspaper',
+  'sports_esports',
+  'sports_soccer',
+  'fitness_center',
+  'spa',
+  'phone_iphone',
+  'wifi',
+  'bolt',
+  'photo_camera',
+];

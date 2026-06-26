@@ -14,4 +14,26 @@ class Category {
     required this.color,
     required this.icon,
   });
+
+  /// Returns a new Category with the given fields replaced (immutable update).
+  Category copyWith({String? name, String? color, String? icon}) => Category(
+    id: id,
+    name: name ?? this.name,
+    color: color ?? this.color,
+    icon: icon ?? this.icon,
+  );
+
+  Map<String, Object?> toMap() => {
+    'id': id,
+    'name': name,
+    'color': color,
+    'icon': icon,
+  };
+
+  factory Category.fromMap(Map<String, Object?> m) => Category(
+    id: m['id'] as String,
+    name: m['name'] as String,
+    color: m['color'] as String,
+    icon: m['icon'] as String,
+  );
 }

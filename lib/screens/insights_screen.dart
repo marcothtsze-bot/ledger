@@ -5,6 +5,9 @@ import '../charts/donut_chart.dart';
 import '../charts/line_charts.dart';
 import '../core/money.dart';
 import '../state/ledger_notifier.dart';
+import '../state/ledger_state.dart';
+import '../theme/hex_color.dart';
+import '../theme/icon_catalog.dart';
 import '../theme/tokens.dart';
 import '../widgets/segmented_control.dart';
 
@@ -27,7 +30,7 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
     final n = ref.read(ledgerProvider.notifier);
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 50, 20, 12),
+      padding: const EdgeInsets.fromLTRB(20, 50, 20, kBottomNavInset),
       children: [
         Text('Insights', style: AppText.screenTitle),
         const SizedBox(height: 16),
@@ -41,6 +44,8 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
         _cashFlowCard(),
         const SizedBox(height: 16),
         _spendingCard(),
+        const SizedBox(height: 16),
+        _budgetsCard(s, n),
         const SizedBox(height: 16),
         _recurringCard(
           s.recurring.length,
@@ -63,6 +68,97 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
         border: Border.all(color: AppColors.hairline),
       ),
       child: child,
+    );
+  }
+
+  Widget _budgetsCard(LedgerState s, LedgerNotifier n) {
+    final spend = s.categorySpendThisMonth(DateTime.now());
+    final entries = s.budgets.entries.toList()
+      ..sort((a, b) => (spend[b.key] ?? 0).compareTo(spend[a.key] ?? 0));
+    return _statCardShell(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Budgets', style: AppText.ui(15, FontWeight.w700)),
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: n.openNewCategory,
+                child: Text(
+                  '+ Set a budget',
+                  style: AppText.ui(12.5, FontWeight.w700,
+                      color: AppColors.brand),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 3),
+          Text('This month · tap a row to adjust', style: AppText.muted12),
+          const SizedBox(height: 14),
+          if (entries.isEmpty)
+            Text(
+              'No budgets yet. Tap "+ Set a budget" to create a category with a '
+              'monthly limit, or edit an existing category to add one.',
+              style: AppText.ui(13, FontWeight.w400,
+                  color: AppColors.muted, height: 1.45),
+            )
+          else
+            for (var i = 0; i < entries.length; i++) ...[
+              if (i > 0) const SizedBox(height: 14),
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => n.openEditCategory(entries[i].key),
+                child: _budgetRow(
+                  s,
+                  entries[i].key,
+                  entries[i].value,
+                  spend[entries[i].key] ?? 0,
+                ),
+              ),
+            ],
+        ],
+      ),
+    );
+  }
+
+  Widget _budgetRow(LedgerState s, String catId, double limit, double spent) {
+    final c = s.categoryById(catId);
+    final tint = hexColor(c.color);
+    final pct = limit > 0 ? (spent / limit).clamp(0.0, 1.0) : 0.0;
+    final over = spent > limit;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(iconFor(c.icon), size: 16, color: tint),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(c.name, style: AppText.ui(14, FontWeight.w600)),
+            ),
+            Text(
+              '${hk(spent)} / ${hk(limit)}',
+              style: AppText.mono(12, FontWeight.w600,
+                  color: over ? AppColors.expense : AppColors.muted),
+            ),
+          ],
+        ),
+        const SizedBox(height: 7),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: Container(
+            height: 7,
+            color: Colors.white.withValues(alpha: 0.08),
+            child: FractionallySizedBox(
+              alignment: Alignment.centerLeft,
+              widthFactor: pct,
+              child: Container(color: over ? AppColors.expense : tint),
+            ),
+          ),
+        ),
+      ],
     );
   }
 

@@ -110,7 +110,7 @@ class AccountDetailOverlay extends ConsumerWidget {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    signedHk(a.balance),
+                    signedMoney(a.balance, a.currency),
                     style: AppText.mono(40, FontWeight.w600, spacing: -0.8),
                   ),
                 ],
@@ -155,7 +155,7 @@ class AccountDetailOverlay extends ConsumerWidget {
               const SizedBox(height: 14),
               Center(
                 child: Text(
-                  '${hk(limit - a.balance.abs())} of ${hk(limit)} available'
+                  '${money(limit - a.balance.abs(), a.currency)} of ${money(limit, a.currency)} available'
                   '${a.minPayment != null ? ' · min payment ${hk(a.minPayment!)}' : ''}',
                   style: AppText.ui(
                     12,

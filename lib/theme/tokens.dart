@@ -4,6 +4,10 @@ import 'package:google_fonts/google_fonts.dart';
 /// Design tokens transcribed from the Ledger handoff. One source of truth for
 /// colour, type, radii, shadow and motion so nothing is hardcoded ad hoc.
 
+/// Bottom scroll inset so a screen's last item clears the 88px floating tab bar
+/// (height 88 + breathing room) instead of being hidden behind it.
+const double kBottomNavInset = 104;
+
 class AppColors {
   AppColors._();
 

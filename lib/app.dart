@@ -9,7 +9,10 @@ import 'screens/home_screen.dart';
 import 'screens/insights_screen.dart';
 import 'sheets/add_account_sheet.dart';
 import 'sheets/add_transaction_sheet.dart';
+import 'sheets/category_editor_sheet.dart';
 import 'sheets/pay_statement_sheet.dart';
+import 'sheets/recurring_editor_sheet.dart';
+import 'sheets/settle_recurring_sheet.dart';
 import 'state/ledger_notifier.dart';
 import 'state/ledger_state.dart';
 import 'theme/tokens.dart';
@@ -67,6 +70,12 @@ class LedgerShell extends ConsumerWidget {
       if (s.payCardId.isNotEmpty)
         const Positioned.fill(child: PayStatementSheet()),
       if (s.sheetOpen) const Positioned.fill(child: AddTransactionSheet()),
+      if (s.catEditorId.isNotEmpty)
+        const Positioned.fill(child: CategoryEditorSheet()),
+      if (s.recurringEditorId.isNotEmpty)
+        const Positioned.fill(child: RecurringEditorSheet()),
+      if (s.payRecurringId.isNotEmpty)
+        const Positioned.fill(child: SettleRecurringSheet()),
       if (s.toast.isNotEmpty)
         Positioned(
           bottom: 104,

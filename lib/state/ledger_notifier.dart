@@ -120,6 +120,7 @@ class LedgerNotifier extends Notifier<LedgerState> {
     acctSheetOpen: true,
     editingAccountId: '',
     newName: '',
+    newIcon: '',
     newType: 'Debit',
     newCurrency: 'HKD',
     newBalance: '',
@@ -139,6 +140,7 @@ class LedgerNotifier extends Notifier<LedgerState> {
       acctSheetOpen: true,
       editingAccountId: id,
       newName: a.name,
+      newIcon: a.icon ?? '',
       newType: a.isLiability ? 'Credit' : 'Debit',
       newCurrency: 'HKD',
       newBalance: a.balance == 0 ? '' : num0(a.balance),
@@ -154,6 +156,7 @@ class LedgerNotifier extends Notifier<LedgerState> {
     acctSheetOpen: false,
     editingAccountId: '',
     newName: '',
+    newIcon: '',
     newBalance: '',
     newInvalid: false,
     newLimit: '',
@@ -191,7 +194,6 @@ class LedgerNotifier extends Notifier<LedgerState> {
   void setTxnType(TxnType t) => state = state.copyWith(txnType: t);
   void press(String key) => state = state.pressKey(key);
   void setPayee(String v) => state = state.copyWith(payee: v);
-  void setTxnDate(DateTime d) => state = state.copyWith(txnDate: d);
   void incMonths() => state = state.copyWith(
     installMonths: state.installMonths < 36 ? state.installMonths + 1 : 36,
   );
@@ -212,17 +214,52 @@ class LedgerNotifier extends Notifier<LedgerState> {
       state = state.copyWith(picker: ActivePicker.category);
   void openRepeatPicker() =>
       state = state.copyWith(picker: ActivePicker.repeat);
+  void openDatePicker() => state = state.copyWith(picker: ActivePicker.date);
   void closePicker() => state = state.copyWith(picker: ActivePicker.none);
   void pickAccount(String id) => state = state.picking == PickingSide.to
       ? state.copyWith(toAccountId: id, picker: ActivePicker.none)
       : state.copyWith(accountId: id, picker: ActivePicker.none);
   void pickCategory(String id) =>
       state = state.copyWith(categoryId: id, picker: ActivePicker.none);
+  void pickDate(DateTime d) => state = state.pickDate(d);
   void setRepeat(RepeatMode r) => state = state.copyWith(repeat: r);
+
+  // ---- Category management ----
+  void openNewCategory() => state = state.copyWith(catEditorId: 'new');
+  void openEditCategory(String id) => state = state.copyWith(catEditorId: id);
+  void closeCategoryEditor() => state = state.copyWith(catEditorId: '');
+
+  void saveCategory({
+    required String name,
+    required String icon,
+    required String color,
+    double budget = 0,
+  }) {
+    final id = state.catEditorId;
+    var next = id == 'new'
+        ? state.addCategory(name: name, icon: icon, color: color)
+        : state.editCategory(id, name: name, icon: icon, color: color);
+    // For a new category the id is generated inside addCategory, so resolve it
+    // from the freshly-appended entry; set (or clear) its monthly budget.
+    final catId = id == 'new' ? next.categories.last.id : id;
+    next = next.setCategoryBudget(catId, budget);
+    state = next.copyWith(catEditorId: '');
+    if (next.toast.isNotEmpty) {
+      _persist();
+      _startToastTimer();
+    }
+  }
+
+  void deleteCategoryById(String id) {
+    state = state.deleteCategory(id).copyWith(catEditorId: '');
+    _persist();
+    if (state.toast.isNotEmpty) _startToastTimer();
+  }
 
   // ---- Add Account draft ----
   void setNewName(String v) =>
       state = state.copyWith(newName: v, newInvalid: false);
+  void setNewIcon(String v) => state = state.copyWith(newIcon: v);
   void setNewType(String v) => state = state.copyWith(newType: v);
   void setNewCurrency(String v) => state = state.copyWith(newCurrency: v);
   void setNewBalance(String v) => state = state.copyWith(newBalance: v);
@@ -235,6 +272,13 @@ class LedgerNotifier extends Notifier<LedgerState> {
 
   // ---- Activity ----
   void setSearch(String v) => state = state.copyWith(search: v);
+  void toggleFilter() => state = state.copyWith(filterOpen: !state.filterOpen);
+  void setFilterAccount(String id) =>
+      state = state.copyWith(filterAccountId: id);
+  void setFilterCategory(String id) =>
+      state = state.copyWith(filterCategoryId: id);
+  void setFilterType(String t) => state = state.copyWith(filterType: t);
+  void clearFilters() => state = state.clearFilters();
 
   // ---- Commits (with side effects) ----
   void save({required bool close}) {
@@ -250,6 +294,64 @@ class LedgerNotifier extends Notifier<LedgerState> {
     final next = state.saveAccount();
     state = next;
     if (next.toast.isNotEmpty) {
+      _persist();
+      _startToastTimer();
+    }
+  }
+
+  // ---- Recurring management ----
+  void openEditRecurring(String id) =>
+      state = state.copyWith(recurringEditorId: id);
+  void closeRecurringEditor() => state = state.copyWith(recurringEditorId: '');
+
+  void saveRecurring(
+    String id, {
+    required String name,
+    required double amount,
+    required String icon,
+    required String color,
+    required String accountId,
+    required DateTime nextDate,
+  }) {
+    state = state
+        .editRecurring(
+          id,
+          name: name,
+          amount: amount,
+          icon: icon,
+          color: color,
+          accountId: accountId,
+          nextDate: nextDate,
+        )
+        .copyWith(recurringEditorId: '');
+    if (state.toast.isNotEmpty) {
+      _persist();
+      _startToastTimer();
+    }
+  }
+
+  void deleteRecurringById(String id) {
+    state = state.deleteRecurring(id).copyWith(recurringEditorId: '');
+    _persist();
+    if (state.toast.isNotEmpty) _startToastTimer();
+  }
+
+  // ---- Pay / settle an upcoming payment ----
+  void openSettleRecurring(String id) =>
+      state = state.copyWith(payRecurringId: id);
+  void closeSettleRecurring() => state = state.copyWith(payRecurringId: '');
+
+  void payRecurring(String id, String fromAccountId) {
+    state = state.payRecurring(id, fromAccountId).copyWith(payRecurringId: '');
+    if (state.toast.isNotEmpty) {
+      _persist();
+      _startToastTimer();
+    }
+  }
+
+  void settleRecurring(String id) {
+    state = state.settleRecurring(id).copyWith(payRecurringId: '');
+    if (state.toast.isNotEmpty) {
       _persist();
       _startToastTimer();
     }

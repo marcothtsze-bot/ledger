@@ -6,7 +6,6 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../core/money.dart';
 import '../core/statement.dart';
-import '../data/seed.dart';
 import '../models/enums.dart';
 import '../state/ledger_notifier.dart';
 import '../state/ledger_state.dart';
@@ -16,6 +15,7 @@ import '../theme/tokens.dart';
 import '../widgets/account_avatar.dart';
 import '../widgets/enter_animations.dart';
 import '../widgets/keypad.dart';
+import '../widgets/month_calendar.dart';
 import '../widgets/primary_button.dart';
 import '../widgets/segmented_control.dart';
 import 'sheet_chrome.dart';
@@ -55,7 +55,10 @@ class _AddTransactionSheetState extends ConsumerState<AddTransactionSheet> {
       if (next.isEmpty && _payee.text.isNotEmpty) _payee.clear();
     });
 
-    final panelHeight = min(680.0, MediaQuery.of(context).size.height - 24);
+    // The design spec's full Add Transaction sheet is 768px tall; capping lower
+    // forced the amount/fields area to scroll above the keypad. Fill the height
+    // available (within the phone frame) up to that, so all fields fit at once.
+    final panelHeight = min(768.0, MediaQuery.of(context).size.height - 24);
 
     return Stack(
       children: [
@@ -241,7 +244,7 @@ class _AddTransactionSheetState extends ConsumerState<AddTransactionSheet> {
                               '${compactDate(s.txnDate)} ›',
                               style: AppText.ui(14, FontWeight.w600),
                             ),
-                            onTap: () => _pickDate(s, n),
+                            onTap: n.openDatePicker,
                             last: editing,
                           ),
                           if (!editing)
@@ -325,16 +328,6 @@ class _AddTransactionSheetState extends ConsumerState<AddTransactionSheet> {
     );
   }
 
-  Future<void> _pickDate(LedgerState s, LedgerNotifier n) async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: s.txnDate,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2100),
-    );
-    if (picked != null) n.setTxnDate(picked);
-  }
-
   String _repeatLabel(LedgerState s) => switch (s.repeat) {
     RepeatMode.off => 'One-time',
     RepeatMode.weekly => 'Weekly',
@@ -409,6 +402,7 @@ class _AddTransactionSheetState extends ConsumerState<AddTransactionSheet> {
             ActivePicker.account => _accountPicker(s, n),
             ActivePicker.category => _categoryPicker(s, n),
             ActivePicker.repeat => _repeatPicker(s, n),
+            ActivePicker.date => _datePicker(s, n),
             ActivePicker.none => const SizedBox.shrink(),
           },
         ),
@@ -503,7 +497,7 @@ class _AddTransactionSheetState extends ConsumerState<AddTransactionSheet> {
                       ),
                       const SizedBox(width: 8),
                       Text(
-                        signedHk(a.balance),
+                        signedMoney(a.balance, a.currency),
                         style: AppText.mono(
                           14,
                           FontWeight.w600,
@@ -531,6 +525,16 @@ class _AddTransactionSheetState extends ConsumerState<AddTransactionSheet> {
     return Column(
       children: [
         _pickerHeader('Category', n.closePicker),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'Tap to choose · long-press to edit',
+              style: AppText.ui(11, FontWeight.w500, color: AppColors.muted),
+            ),
+          ),
+        ),
         Expanded(
           child: GridView.count(
             crossAxisCount: 3,
@@ -539,10 +543,11 @@ class _AddTransactionSheetState extends ConsumerState<AddTransactionSheet> {
             childAspectRatio: 0.92,
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
             children: [
-              for (final c in kCategories)
+              for (final c in s.categories)
                 GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: () => n.pickCategory(c.id),
+                  onLongPress: () => n.openEditCategory(c.id),
                   child: Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 8,
@@ -586,7 +591,68 @@ class _AddTransactionSheetState extends ConsumerState<AddTransactionSheet> {
                     ),
                   ),
                 ),
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: n.openNewCategory,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 16,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.card,
+                    borderRadius: BorderRadius.circular(AppRadii.card),
+                    border: Border.all(color: AppColors.hairline),
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        width: 42,
+                        height: 42,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: AppColors.brand.withValues(alpha: 0.16),
+                          borderRadius: BorderRadius.circular(13),
+                        ),
+                        child: const Icon(
+                          Symbols.add_rounded,
+                          size: 23,
+                          color: AppColors.brand,
+                        ),
+                      ),
+                      const SizedBox(height: 9),
+                      Text(
+                        'New',
+                        textAlign: TextAlign.center,
+                        style: AppText.ui(
+                          12,
+                          FontWeight.w600,
+                          color: AppColors.brand,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _datePicker(LedgerState s, LedgerNotifier n) {
+    return Column(
+      children: [
+        _pickerHeader('Date', n.closePicker),
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+            child: MonthCalendar(
+              selected: s.txnDate,
+              onPick: n.pickDate,
+            ),
           ),
         ),
       ],

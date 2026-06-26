@@ -51,6 +51,17 @@ int _daysInMonth(int year, int month) {
   return firstOfNext.subtract(const Duration(days: 1)).day;
 }
 
+/// Day-of-month cells for a Sunday-first month grid: leading `null`s padding to
+/// the weekday of the 1st, then 1..daysInMonth. Drives the in-sheet calendar.
+List<int?> monthGridCells(int year, int month) {
+  final lead = DateTime(year, month, 1).weekday % 7; // Mon=1..Sun=7 → Sun=0
+  final days = _daysInMonth(year, month);
+  return [
+    for (var i = 0; i < lead; i++) null,
+    for (var d = 1; d <= days; d++) d,
+  ];
+}
+
 DateTime _clampedDate(int year, int month, int day) =>
     DateTime(year, month, day.clamp(1, _daysInMonth(year, month)));
 
@@ -72,6 +83,15 @@ DateTime nextOccurrence(int day, DateTime today) {
 String nextDueLabel(int day, DateTime today) {
   final d = nextOccurrence(day, today);
   return '${monthAbbrev(d.month)} ${d.day}';
+}
+
+/// The next due date for a recurring item: +7 days for `'Weekly'`, otherwise one
+/// month on with the day clamped to the target month's length (Jan 31 → Feb 28).
+DateTime nextRecurringDate(DateTime from, String freq) {
+  if (freq == 'Weekly') return from.add(const Duration(days: 7));
+  final month = from.month == 12 ? 1 : from.month + 1;
+  final year = from.month == 12 ? from.year + 1 : from.year;
+  return _clampedDate(year, month, from.day);
 }
 
 /// Charges accrued since the statement closed (not yet billed) =

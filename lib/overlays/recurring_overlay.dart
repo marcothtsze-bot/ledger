@@ -7,6 +7,7 @@ import '../models/recurring.dart';
 import '../state/ledger_notifier.dart';
 import '../state/ledger_state.dart';
 import '../theme/hex_color.dart';
+import '../theme/icon_catalog.dart';
 import '../theme/tokens.dart';
 import '../widgets/enter_animations.dart';
 import '../widgets/icon_tile.dart';
@@ -60,7 +61,11 @@ class RecurringOverlay extends ConsumerWidget {
             const EyebrowLabel('Subscriptions'),
             const SizedBox(height: 10),
             for (final r in subs) ...[
-              _subRow(s, r),
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => n.openEditRecurring(r.id),
+                child: _subRow(s, r),
+              ),
               const SizedBox(height: 10),
             ],
             const SizedBox(height: 12),
@@ -97,7 +102,15 @@ class RecurringOverlay extends ConsumerWidget {
               style: AppText.ui(12, FontWeight.w400, color: AppColors.muted),
             ),
             const SizedBox(height: 5),
-            Text(value, style: AppText.mono(20, FontWeight.w600)),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                value,
+                maxLines: 1,
+                style: AppText.mono(20, FontWeight.w600),
+              ),
+            ),
           ],
         ),
       ),
@@ -117,9 +130,11 @@ class RecurringOverlay extends ConsumerWidget {
         children: [
           IconTile(
             size: 34,
-            bg: hexColor('${c.color}29'),
-            fg: hexColor(c.color),
-            letter: r.name.substring(0, 1).toUpperCase(),
+            bg: hexColor('${r.color ?? c.color}29'),
+            fg: hexColor(r.color ?? c.color),
+            glyphSize: 17,
+            icon: r.icon != null ? iconFor(r.icon!) : null,
+            letter: r.icon == null ? r.name.substring(0, 1).toUpperCase() : null,
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -134,6 +149,8 @@ class RecurringOverlay extends ConsumerWidget {
             ),
           ),
           Text(hk(r.amount), style: AppText.money),
+          const SizedBox(width: 6),
+          const Icon(Symbols.chevron_right_rounded, size: 18, color: AppColors.idleTab),
         ],
       ),
     );

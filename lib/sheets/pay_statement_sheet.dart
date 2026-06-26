@@ -157,7 +157,7 @@ class PayStatementSheet extends ConsumerWidget {
                                               ),
                                               const SizedBox(height: 2),
                                               Text(
-                                                'Balance ${signedHk(a.balance)}',
+                                                'Balance ${signedMoney(a.balance, a.currency)}',
                                                 style: AppText.muted12,
                                               ),
                                             ],

@@ -1,3 +1,4 @@
+import '../core/statement.dart';
 import '../models/account.dart';
 import '../models/category.dart';
 import '../models/enums.dart';
@@ -108,6 +109,7 @@ List<Account> seedAccounts() => [
     letter: 'W',
     color: '#5b8cff',
     bg: '#1f2c3f',
+    currency: 'USD',
     balance: 9680,
     nature: AccountNature.asset,
     group: 'cashbank',
@@ -204,41 +206,40 @@ List<Txn> seedTransactions() {
   ];
 }
 
-List<Recurring> seedRecurring() => const [
-  Recurring(
-    id: 'r1',
-    name: 'Netflix',
-    amount: 78,
-    freq: 'Monthly',
-    next: 'Jun 24',
-    catId: 'subs',
-    kind: RecurringKind.sub,
-  ),
-  Recurring(
-    id: 'r2',
-    name: 'Spotify',
-    amount: 58,
-    freq: 'Monthly',
-    next: 'Jun 27',
-    catId: 'subs',
-    kind: RecurringKind.sub,
-  ),
-  Recurring(
-    id: 'r3',
-    name: 'iCloud',
-    amount: 78,
-    freq: 'Monthly',
-    next: 'Jul 2',
-    catId: 'subs',
-    kind: RecurringKind.sub,
-  ),
-  Recurring(
-    id: 'r4',
-    name: 'Gym',
-    amount: 499,
-    freq: 'Monthly',
-    next: 'Jul 1',
-    catId: 'health',
-    kind: RecurringKind.sub,
-  ),
-];
+List<Recurring> seedRecurring() {
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+
+  Recurring sub({
+    required String id,
+    required String name,
+    required double amount,
+    required String icon,
+    required String color,
+    required String catId,
+    required int inDays,
+  }) {
+    final nd = today.add(Duration(days: inDays));
+    return Recurring(
+      id: id,
+      name: name,
+      amount: amount,
+      freq: 'Monthly',
+      next: '${monthAbbrev(nd.month)} ${nd.day}',
+      catId: catId,
+      kind: RecurringKind.sub,
+      icon: icon,
+      color: color,
+      accountId: 'hsbc',
+      nextDate: nd,
+    );
+  }
+
+  return [
+    // Netflix is due today so the Upcoming "Due" state is visible on first run.
+    sub(id: 'r1', name: 'Netflix', amount: 78, icon: 'movie', color: '#e50914', catId: 'subs', inDays: 0),
+    sub(id: 'r2', name: 'Spotify', amount: 58, icon: 'music_note', color: '#1db954', catId: 'subs', inDays: 1),
+    sub(id: 'r3', name: 'iCloud', amount: 78, icon: 'cloud', color: '#38bdf8', catId: 'subs', inDays: 6),
+    sub(id: 'r4', name: 'Gym', amount: 499, icon: 'fitness_center', color: '#fb923c', catId: 'health', inDays: 5),
+  ];
+}

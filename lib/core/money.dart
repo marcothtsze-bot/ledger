@@ -24,5 +24,38 @@ String hk(num value) => 'HK\$${fmtAmount(value)}';
 /// Signed `HK$` using the prototype's minus glyph (U+2212) for negatives.
 String signedHk(num value) => '${value < 0 ? '−' : ''}${hk(value)}';
 
+/// Symbol/prefix for a currency code (account-level display). Unknown codes
+/// fall back to the code itself, e.g. `KRW 1,234`.
+String currencySymbol(String currency) {
+  switch (currency.toUpperCase()) {
+    case 'HKD':
+      return 'HK\$';
+    case 'USD':
+      return 'US\$';
+    case 'JPY':
+      return '¥';
+    case 'GBP':
+      return '£';
+    case 'EUR':
+      return '€';
+    case 'CNY':
+      return 'CN¥';
+    case 'AUD':
+      return 'A\$';
+    case 'SGD':
+      return 'S\$';
+    default:
+      return '${currency.toUpperCase()} ';
+  }
+}
+
+/// Amount in a specific [currency], e.g. `¥1,234` / `US$1,234`.
+String money(num value, String currency) =>
+    '${currencySymbol(currency)}${fmtAmount(value)}';
+
+/// Signed amount in a specific [currency] (prototype minus glyph for negatives).
+String signedMoney(num value, String currency) =>
+    '${value < 0 ? '−' : ''}${money(value, currency)}';
+
 /// Parses keypad / text input into a double, matching JS `parseFloat(x || '0')`.
 double parseAmount(String? raw) => double.tryParse((raw ?? '').trim()) ?? 0;

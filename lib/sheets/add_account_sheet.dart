@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../state/ledger_notifier.dart';
+import '../theme/icon_catalog.dart';
 import '../theme/tokens.dart';
+import '../view/account_logo.dart';
+import '../widgets/confirm_overlay.dart';
 import '../widgets/enter_animations.dart';
 import '../widgets/primary_button.dart';
 import '../widgets/selectable_chip.dart';
@@ -29,6 +32,7 @@ class _AddAccountSheetState extends ConsumerState<AddAccountSheet> {
   late final TextEditingController _stmtDay;
   late final TextEditingController _dueDay;
   late final TextEditingController _stmtBal;
+  bool _confirming = false;
 
   @override
   void initState() {
@@ -110,6 +114,33 @@ class _AddAccountSheetState extends ConsumerState<AddAccountSheet> {
                                 borderColor: s.newInvalid
                                     ? AppColors.expense
                                     : AppColors.hairline,
+                              ),
+                              const SizedBox(height: 16),
+                              _fieldLabel('Icon'),
+                              const SizedBox(height: 7),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  _iconTile(
+                                    selected: s.newIcon.isEmpty,
+                                    onTap: () => n.setNewIcon(''),
+                                    label: 'Auto',
+                                  ),
+                                  for (final e in kAccountLogos.entries)
+                                    _iconTile(
+                                      selected: s.newIcon == 'logo:${e.key}',
+                                      onTap: () =>
+                                          n.setNewIcon('logo:${e.key}'),
+                                      logoAsset: e.value.asset,
+                                    ),
+                                  for (final ic in kAccountIcons)
+                                    _iconTile(
+                                      selected: s.newIcon == ic,
+                                      onTap: () => n.setNewIcon(ic),
+                                      icon: iconFor(ic),
+                                    ),
+                                ],
                               ),
                               if (!editing) ...[
                                 const SizedBox(height: 16),
@@ -250,11 +281,8 @@ class _AddAccountSheetState extends ConsumerState<AddAccountSheet> {
                                 const SizedBox(height: 12),
                                 GestureDetector(
                                   behavior: HitTestBehavior.opaque,
-                                  onTap: () => _confirmDelete(
-                                    n,
-                                    s.editingAccountId,
-                                    edited?.name ?? 'this account',
-                                  ),
+                                  onTap: () =>
+                                      setState(() => _confirming = true),
                                   child: Container(
                                     width: double.infinity,
                                     padding: const EdgeInsets.symmetric(
@@ -291,50 +319,78 @@ class _AddAccountSheetState extends ConsumerState<AddAccountSheet> {
             ),
           ),
         ),
+        if (_confirming)
+          ConfirmOverlay(
+            title: 'Delete ${edited?.name ?? 'this account'}?',
+            message:
+                "This removes the account and its transactions. This can't be undone.",
+            confirmLabel: 'Delete',
+            onCancel: () => setState(() => _confirming = false),
+            onConfirm: () => n.deleteAccount(s.editingAccountId),
+          ),
       ],
     );
-  }
-
-  Future<void> _confirmDelete(LedgerNotifier n, String id, String name) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.sheet,
-        title: Text('Delete $name?', style: AppText.ui(16, FontWeight.w700)),
-        content: Text(
-          "This removes the account and its transactions. This can't be undone.",
-          style: AppText.ui(
-            13,
-            FontWeight.w400,
-            color: AppColors.muted,
-            height: 1.4,
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text(
-              'Cancel',
-              style: AppText.ui(14, FontWeight.w600, color: AppColors.muted),
-            ),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text(
-              'Delete',
-              style: AppText.ui(14, FontWeight.w700, color: AppColors.expense),
-            ),
-          ),
-        ],
-      ),
-    );
-    if (ok == true) n.deleteAccount(id);
   }
 
   Widget _fieldLabel(String text) => Text(
     text,
     style: AppText.ui(12, FontWeight.w600, color: AppColors.muted),
   );
+
+  /// One selectable tile in the account icon picker. Pass [logoAsset] for a
+  /// bundled bank logo, [icon] for a glyph, or [label] for the "Auto" tile.
+  Widget _iconTile({
+    required bool selected,
+    required VoidCallback onTap,
+    IconData? icon,
+    String? label,
+    String? logoAsset,
+  }) {
+    final Widget child;
+    if (logoAsset != null) {
+      child = Padding(
+        padding: const EdgeInsets.all(7),
+        child: Image.asset(logoAsset, fit: BoxFit.contain),
+      );
+    } else if (icon != null) {
+      child = Icon(
+        icon,
+        size: 22,
+        color: selected ? AppColors.brand : AppColors.text,
+      );
+    } else {
+      child = Text(
+        label!,
+        style: AppText.ui(
+          12,
+          FontWeight.w700,
+          color: selected ? AppColors.brand : AppColors.muted,
+        ),
+      );
+    }
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Container(
+        width: 46,
+        height: 46,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: logoAsset != null
+              ? Colors.white
+              : (selected
+                    ? AppColors.brand.withValues(alpha: 0.16)
+                    : AppColors.card),
+          borderRadius: BorderRadius.circular(AppRadii.tileMed),
+          border: Border.all(
+            color: selected ? AppColors.brand : AppColors.hairline,
+            width: selected ? 1.5 : 1,
+          ),
+        ),
+        child: child,
+      ),
+    );
+  }
 
   Widget _dayField(
     String label,

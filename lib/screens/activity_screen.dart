@@ -40,24 +40,34 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
     final n = ref.read(ledgerProvider.notifier);
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 50, 20, 12),
+      padding: const EdgeInsets.fromLTRB(20, 50, 20, kBottomNavInset),
       children: [
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text('Activity', style: AppText.screenTitle),
-            Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                color: AppColors.card,
-                shape: BoxShape.circle,
-                border: Border.all(color: AppColors.hairlineStrong),
-              ),
-              child: const Icon(
-                Symbols.tune_rounded,
-                color: AppColors.muted,
-                size: 18,
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: n.toggleFilter,
+              child: Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: s.hasActiveFilters
+                      ? AppColors.brand.withValues(alpha: 0.16)
+                      : AppColors.card,
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: s.hasActiveFilters
+                        ? AppColors.brand
+                        : AppColors.hairlineStrong,
+                  ),
+                ),
+                child: Icon(
+                  Symbols.tune_rounded,
+                  color: s.hasActiveFilters ? AppColors.brand : AppColors.muted,
+                  size: 18,
+                ),
               ),
             ),
           ],
@@ -100,6 +110,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
             ],
           ),
         ),
+        if (s.filterOpen) _filterPanel(s, n),
         const SizedBox(height: 16),
         Row(
           children: [
@@ -113,7 +124,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
           ],
         ),
         const SizedBox(height: 20),
-        if (s.noSearchResults)
+        if (s.activityGroups.isEmpty)
           _emptyState()
         else
           for (final g in s.activityGroups) ...[
@@ -128,6 +139,100 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
             const SizedBox(height: 18),
           ],
       ],
+    );
+  }
+
+  Widget _filterPanel(LedgerState s, LedgerNotifier n) {
+    Widget chip(String label, bool selected, VoidCallback onTap) =>
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+            decoration: BoxDecoration(
+              color: selected
+                  ? AppColors.brand.withValues(alpha: 0.16)
+                  : AppColors.card,
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(
+                color: selected ? AppColors.brand : AppColors.hairline,
+              ),
+            ),
+            child: Text(
+              label,
+              style: AppText.ui(12.5, FontWeight.w600,
+                  color: selected ? AppColors.brand : AppColors.text),
+            ),
+          ),
+        );
+
+    Widget section(String title, List<Widget> chips) => Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: AppText.eyebrow().copyWith(fontSize: 11)),
+        const SizedBox(height: 8),
+        Wrap(spacing: 8, runSpacing: 8, children: chips),
+      ],
+    );
+
+    return Container(
+      margin: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.sheet,
+        borderRadius: BorderRadius.circular(AppRadii.card),
+        border: Border.all(color: AppColors.hairline),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          section('Type', [
+            chip('All', s.filterType.isEmpty, () => n.setFilterType('')),
+            chip('Expense', s.filterType == 'expense',
+                () => n.setFilterType('expense')),
+            chip('Income', s.filterType == 'income',
+                () => n.setFilterType('income')),
+            chip('Transfer', s.filterType == 'transfer',
+                () => n.setFilterType('transfer')),
+          ]),
+          const SizedBox(height: 14),
+          section('Account', [
+            chip('All', s.filterAccountId.isEmpty,
+                () => n.setFilterAccount('')),
+            for (final a in s.accounts)
+              chip(a.name, s.filterAccountId == a.id,
+                  () => n.setFilterAccount(a.id)),
+          ]),
+          const SizedBox(height: 14),
+          section('Category', [
+            chip('All', s.filterCategoryId.isEmpty,
+                () => n.setFilterCategory('')),
+            for (final c in s.categories)
+              chip(c.name, s.filterCategoryId == c.id,
+                  () => n.setFilterCategory(c.id)),
+          ]),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: n.clearFilters,
+                child: Text('Clear all',
+                    style: AppText.ui(13, FontWeight.w600,
+                        color: AppColors.expense)),
+              ),
+              const Spacer(),
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: n.toggleFilter,
+                child: Text('Done',
+                    style: AppText.ui(13, FontWeight.w700,
+                        color: AppColors.brand)),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
@@ -203,7 +308,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
           ),
           const SizedBox(height: 4),
           Text(
-            'Try a different search term.',
+            'Try a different search or filter.',
             style: AppText.ui(13, FontWeight.w400, color: AppColors.muted),
           ),
         ],

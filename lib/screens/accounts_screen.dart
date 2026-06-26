@@ -32,7 +32,7 @@ class AccountsScreen extends ConsumerWidget {
     final credit = inGroup('credit');
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 50, 20, 12),
+      padding: const EdgeInsets.fromLTRB(20, 50, 20, kBottomNavInset),
       children: [
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -117,9 +117,16 @@ class AccountsScreen extends ConsumerWidget {
                 'Net worth',
                 style: AppText.ui(13, FontWeight.w400, color: AppColors.muted),
               ),
-              Text(
-                signedHk(s.netWorth),
-                style: AppText.mono(20, FontWeight.w600),
+              Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerRight,
+                  child: Text(
+                    signedHk(s.netWorth),
+                    maxLines: 1,
+                    style: AppText.mono(20, FontWeight.w600),
+                  ),
+                ),
               ),
             ],
           ),
@@ -237,7 +244,7 @@ class AccountsScreen extends ConsumerWidget {
                   ),
                 ),
                 Text(
-                  signedHk(a.balance),
+                  signedMoney(a.balance, a.currency),
                   style: AppText.mono(
                     15,
                     FontWeight.w600,
@@ -327,7 +334,7 @@ class AccountsScreen extends ConsumerWidget {
                         ),
                         const SizedBox(height: 3),
                         Text(
-                          hk(pendingThisCycle(a.balance, a.statementBalance)),
+                          money(pendingThisCycle(a.balance, a.statementBalance), a.currency),
                           style: AppText.mono(15, FontWeight.w600),
                         ),
                       ],

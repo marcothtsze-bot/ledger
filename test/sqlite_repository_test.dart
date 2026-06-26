@@ -45,4 +45,68 @@ void main() {
     await repo.reset();
     expect(await repo.load(), isNull);
   });
+
+  test('upgrades a v4 database to v6 (adds icon column + categories table)',
+      () async {
+    // Open at the OLD schema (v4: no accounts.icon, no categories table).
+    final db = await databaseFactoryFfi.openDatabase(
+      inMemoryDatabasePath,
+      options: OpenDatabaseOptions(version: 4, onCreate: _createV4Schema),
+    );
+    addTearDown(db.close);
+
+    await db.insert('accounts', {
+      'id': 'hsbc',
+      'name': 'HSBC One',
+      'sub': 'Debit · HKD',
+      'letter': 'H',
+      'color': '#3ad29f',
+      'bg': '#1f3a32',
+      'balance': 100.0,
+      'nature': 'asset',
+      'grp': 'cashbank',
+      'pinned': 1,
+    });
+
+    // Run the real migration to the current version.
+    await SqliteLedgerRepository.upgradeSchema(
+      db,
+      4,
+      SqliteLedgerRepository.schemaVersion,
+    );
+
+    final loaded = await SqliteLedgerRepository(db).load();
+    expect(loaded, isNotNull);
+    expect(loaded!.accounts.single.id, 'hsbc');
+    expect(loaded.accounts.single.icon, isNull, reason: 'new icon col defaults null');
+    expect(
+      loaded.categories.length,
+      kCategories.length,
+      reason: 'empty categories table falls back to the seed set',
+    );
+  });
+}
+
+/// Builds the pre-v5 (version 4) schema so the upgrade path can be tested:
+/// accounts has no `icon` column and there is no `categories` table.
+Future<void> _createV4Schema(Database db, int version) async {
+  await db.execute('''
+    CREATE TABLE accounts(
+      id TEXT PRIMARY KEY, name TEXT, sub TEXT, letter TEXT,
+      color TEXT, bg TEXT, balance REAL, nature TEXT, grp TEXT,
+      note TEXT, creditLimit REAL, minPayment REAL,
+      statementDay INTEGER, dueDay INTEGER, statementBalance REAL,
+      pinned INTEGER
+    )''');
+  await db.execute('''
+    CREATE TABLE txns(
+      id INTEGER PRIMARY KEY, type TEXT, amount REAL, payee TEXT,
+      catId TEXT, acctId TEXT, day TEXT, fx TEXT, toAcctId TEXT
+    )''');
+  await db.execute('''
+    CREATE TABLE recurring(
+      id TEXT PRIMARY KEY, name TEXT, amount REAL, freq TEXT, next TEXT,
+      catId TEXT, kind TEXT, total INTEGER, paid INTEGER
+    )''');
+  await db.execute('CREATE TABLE meta(k TEXT PRIMARY KEY, v REAL)');
 }

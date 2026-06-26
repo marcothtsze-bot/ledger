@@ -49,7 +49,7 @@ class AccountListTile extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                signedHk(a.balance),
+                signedMoney(a.balance, a.currency),
                 style: AppText.mono(
                   15,
                   FontWeight.w600,
