@@ -1,0 +1,472 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:material_symbols_icons/symbols.dart';
+
+import '../charts/line_charts.dart';
+import '../core/money.dart';
+import '../models/account.dart';
+import '../state/ledger_notifier.dart';
+import '../state/ledger_state.dart';
+import '../theme/tokens.dart';
+import '../view/account_type.dart';
+import '../view/txn_view.dart';
+import '../widgets/account_avatar.dart';
+import '../widgets/grouped_card.dart';
+import '../widgets/section_header.dart';
+import '../widgets/txn_row.dart';
+
+/// Net-worth dashboard: hero header, month stat cards, account preview,
+/// upcoming charges and recent transactions.
+class HomeScreen extends ConsumerWidget {
+  const HomeScreen({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final s = ref.watch(ledgerProvider);
+    final n = ref.read(ledgerProvider.notifier);
+    final pinned = s.pinnedAccounts;
+    final net = s.incomeMonth - s.expenseMonth;
+
+    return ListView(
+      padding: EdgeInsets.zero,
+      children: [
+        _header(context, s),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 6, 20, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  _statCard(
+                    '▲ Income',
+                    hk(s.incomeMonth),
+                    AppColors.softGreen2,
+                  ),
+                  const SizedBox(width: 10),
+                  _statCard(
+                    '▼ Expense',
+                    hk(s.expenseMonth),
+                    AppColors.expenseMuted,
+                  ),
+                  const SizedBox(width: 10),
+                  _statCard(
+                    'Net',
+                    net >= 0 ? '+${hk(net)}' : signedHk(net),
+                    AppColors.mutedNet,
+                    valueColor: AppColors.brand,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 22),
+              SectionHeader(
+                'Accounts',
+                actionLabel: 'See all',
+                onAction: () => n.goTab(AppTab.accounts),
+              ),
+              const SizedBox(height: 11),
+              for (var i = 0; i < pinned.length; i++) ...[
+                if (i > 0) const SizedBox(height: 10),
+                pinned[i].isCreditCard
+                    ? _creditPreviewCard(
+                        pinned[i],
+                        () => n.openAccount(pinned[i].id),
+                      )
+                    : _simpleAccountCard(
+                        pinned[i],
+                        () => n.openAccount(pinned[i].id),
+                      ),
+              ],
+              if (pinned.isEmpty)
+                Text(
+                  'Pin accounts to see them here — open an account and tap the ☆.',
+                  style: AppText.muted12,
+                ),
+              const SizedBox(height: 22),
+              SectionHeader(
+                'Upcoming',
+                actionLabel: 'Manage',
+                onAction: n.openRecurring,
+              ),
+              const SizedBox(height: 11),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (var i = 0; i < s.recurring.take(3).length; i++) ...[
+                    if (i > 0) const SizedBox(width: 10),
+                    Expanded(
+                      child: _upcomingCard(
+                        s.recurring[i].name,
+                        s.recurring[i].next,
+                        hk(s.recurring[i].amount),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 22),
+              SectionHeader(
+                'Recent',
+                actionLabel: 'See all',
+                onAction: () => n.goTab(AppTab.activity),
+              ),
+              const SizedBox(height: 11),
+              GroupedCard(
+                children: [
+                  for (final t in s.transactions.take(3))
+                    TxnRow(txnRowData(s, t), onTap: () => n.openEditTxn(t.id)),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _header(BuildContext context, LedgerState s) {
+    final reduce = MediaQuery.of(context).disableAnimations;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(22, 50, 22, 26),
+      decoration: const BoxDecoration(gradient: AppColors.homeHeaderGradient),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Flexible(
+                child: Text(
+                  'Hi, Marco',
+                  style: AppText.ui(19, FontWeight.w700),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 13,
+                      vertical: 7,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(AppRadii.pill),
+                    ),
+                    child: Text(
+                      'June ▾',
+                      style: AppText.ui(14, FontWeight.w600),
+                    ),
+                  ),
+                  const SizedBox(width: 9),
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.12),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Symbols.settings_rounded,
+                      size: 19,
+                      color: AppColors.text,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          Text(
+            'Net Worth · HKD',
+            style: AppText.ui(
+              11,
+              FontWeight.w600,
+              color: Colors.white.withValues(alpha: 0.7),
+              spacing: 1.8,
+            ),
+          ),
+          const SizedBox(height: 9),
+          TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0, end: s.netWorth),
+            duration: reduce ? Duration.zero : AppDurations.countUp,
+            curve: Curves.easeOutCubic,
+            builder: (_, v, _) =>
+                Text(signedHk(v), style: AppText.heroNetWorth),
+          ),
+          const SizedBox(height: 13),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 11,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color: AppColors.brand,
+                  borderRadius: BorderRadius.circular(AppRadii.pill),
+                ),
+                child: Text(
+                  '▲ 2.1%',
+                  style: AppText.mono(
+                    13,
+                    FontWeight.w700,
+                    color: AppColors.onBrand,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  '+HK\$9,840 since May',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppText.ui(
+                    13,
+                    FontWeight.w400,
+                    color: Colors.white.withValues(alpha: 0.8),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          const Sparkline(
+            values: [8, 13, 11, 23, 18, 29, 24, 35, 31],
+            color: AppColors.softGreen,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _statCard(
+    String label,
+    String value,
+    Color labelColor, {
+    Color? valueColor,
+  }) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
+        decoration: BoxDecoration(
+          color: AppColors.card,
+          borderRadius: BorderRadius.circular(AppRadii.card),
+          border: Border.all(color: AppColors.hairline),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: AppText.ui(11, FontWeight.w600, color: labelColor),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              value,
+              style: AppText.mono(
+                15,
+                FontWeight.w600,
+                color: valueColor ?? AppColors.text,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _typePill(Account a) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(AppRadii.pill),
+      ),
+      child: Text(
+        accountTypeLabel(a).toUpperCase(),
+        style: AppText.ui(
+          9.5,
+          FontWeight.w700,
+          color: AppColors.muted,
+          spacing: 0.4,
+        ),
+      ),
+    );
+  }
+
+  Widget _simpleAccountCard(Account a, VoidCallback onTap) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: AppColors.card,
+          borderRadius: BorderRadius.circular(AppRadii.card),
+          border: Border.all(color: AppColors.hairline),
+        ),
+        child: Row(
+          children: [
+            AccountAvatar(account: a, size: 32),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          a.name,
+                          style: AppText.ui(14, FontWeight.w600),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 7),
+                      _typePill(a),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(a.sub, style: AppText.muted12),
+                ],
+              ),
+            ),
+            Text(signedHk(a.balance), style: AppText.money),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _creditPreviewCard(Account a, VoidCallback onTap) {
+    final used = a.creditLimit != null && a.creditLimit! > 0
+        ? (a.balance.abs() / a.creditLimit!).clamp(0.0, 1.0)
+        : 0.0;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: AppColors.card,
+          borderRadius: BorderRadius.circular(AppRadii.card),
+          border: Border.all(color: AppColors.hairline),
+        ),
+        child: Row(
+          children: [
+            AccountAvatar(account: a, size: 32),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          a.name,
+                          style: AppText.ui(14, FontWeight.w600),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 7),
+                      _typePill(a),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Container(
+                        width: 46,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                        child: FractionallySizedBox(
+                          alignment: Alignment.centerLeft,
+                          widthFactor: used,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: AppColors.amber,
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          '${(used * 100).round()}% used',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppText.ui(
+                            11,
+                            FontWeight.w400,
+                            color: AppColors.muted,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            Text(
+              signedHk(a.balance),
+              style: AppText.mono(
+                15,
+                FontWeight.w600,
+                color: AppColors.expense,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _upcomingCard(String name, String next, String amount) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+      decoration: BoxDecoration(
+        color: AppColors.card,
+        borderRadius: BorderRadius.circular(AppRadii.card),
+        border: Border.all(color: AppColors.hairline),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            name,
+            style: AppText.ui(14, FontWeight.w600),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 2),
+          Text(
+            next,
+            style: AppText.muted12,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 9),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(amount, maxLines: 1, style: AppText.money),
+          ),
+        ],
+      ),
+    );
+  }
+}
