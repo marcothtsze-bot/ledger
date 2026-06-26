@@ -65,8 +65,10 @@ UI resolves hex → `Color` via `theme/hex_color.dart`.
 The on-device store is SQLite (`sqflite` on mobile, the FFI engine on
 desktop/tests). State is small, so each change writes a fresh snapshot inside one
 transaction. The repository is behind an interface, so swapping in cloud sync
-later is a drop-in. The web preview build runs on in-memory data (the app targets
-iOS first).
+later is a drop-in. The web / installed-PWA build persists to the browser's local
+storage (the whole snapshot as Backup-format JSON under one key), so data survives
+reloads there too; the in-app Backup export is the safety net if a browser ever
+clears its storage.
 
 A fresh install starts **empty** — no sample accounts or transactions, so you
 build your own data from the first launch. Only the default category set is
