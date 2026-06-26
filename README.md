@@ -65,8 +65,14 @@ UI resolves hex → `Color` via `theme/hex_color.dart`.
 The on-device store is SQLite (`sqflite` on mobile, the FFI engine on
 desktop/tests). State is small, so each change writes a fresh snapshot inside one
 transaction. The repository is behind an interface, so swapping in cloud sync
-later is a drop-in. The web preview build runs on seeded in-memory data (the app
-targets iOS first).
+later is a drop-in. The web preview build runs on in-memory data (the app targets
+iOS first).
+
+A fresh install starts **empty** — no sample accounts or transactions, so you
+build your own data from the first launch. Only the default category set is
+pre-populated so transactions can be categorised right away. (The sample data
+that used to seed the prototype now lives only in `LedgerState.initial()`, used
+by the tests; the running app boots from `LedgerState.empty()`.)
 
 ## Notes / future polish
 

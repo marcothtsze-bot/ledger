@@ -31,7 +31,7 @@ class LedgerNotifier extends Notifier<LedgerState> {
   LedgerState build() {
     ref.onDispose(() => _toastTimer?.cancel());
     _hydrate();
-    return LedgerState.initial();
+    return LedgerState.empty();
   }
 
   LedgerRepository get _repo => ref.read(ledgerRepositoryProvider);
@@ -39,7 +39,9 @@ class LedgerNotifier extends Notifier<LedgerState> {
   Future<void> _hydrate() async {
     final snap = await _repo.load();
     if (snap == null) {
-      await _repo.persist(state.toSnapshot()); // first run: store the seed
+      // First run: persist the empty starting state so the app opens blank and
+      // the user builds their own data from scratch.
+      await _repo.persist(state.toSnapshot());
     } else {
       state = LedgerState.fromSnapshot(snap);
     }

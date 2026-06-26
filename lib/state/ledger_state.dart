@@ -222,6 +222,22 @@ class LedgerState {
     toast: '',
   );
 
+  /// A fresh, empty ledger — no accounts, transactions, or recurring items, and
+  /// month-to-date counters at zero. This is what a real first launch starts
+  /// from, so the user builds their own data. The default category set is kept
+  /// so transactions can be categorised from the very first entry; the draft
+  /// account ids are blanked since no account exists yet. [initial] keeps the
+  /// prototype's sample data for tests and the web preview.
+  factory LedgerState.empty() => LedgerState.initial().copyWith(
+    accounts: const [],
+    transactions: const [],
+    recurring: const [],
+    incomeMonth: 0,
+    expenseMonth: 0,
+    accountId: '',
+    toAccountId: '',
+  );
+
   /// Rehydrates persisted data over the default draft/UI state.
   factory LedgerState.fromSnapshot(LedgerSnapshot s) {
     final cats = s.categories;
