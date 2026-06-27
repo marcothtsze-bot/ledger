@@ -30,7 +30,10 @@ class AccountDetailOverlay extends ConsumerWidget {
 
     final txns = s.transactions.where((t) => t.acctId == a.id).toList();
     final limit = a.creditLimit ?? 0;
-    final used = limit > 0 ? (a.balance.abs() / limit).clamp(0.0, 1.0) : 0.0;
+    // Reserve committed-but-unbilled installments against the limit too.
+    final reserved = s.cardReserved(a.id);
+    final committed = s.installmentCommitmentRemaining(a.id);
+    final used = limit > 0 ? (reserved / limit).clamp(0.0, 1.0) : 0.0;
     final today = DateTime.now();
 
     return EnterFade(
@@ -157,7 +160,8 @@ class AccountDetailOverlay extends ConsumerWidget {
               const SizedBox(height: 14),
               Center(
                 child: Text(
-                  '${money(limit - a.balance.abs(), a.currency)} of ${money(limit, a.currency)} available'
+                  '${money(limit - reserved, a.currency)} of ${money(limit, a.currency)} available'
+                  '${committed > 0 ? ' · reserves ${money(committed, a.currency)} committed installments' : ''}'
                   '${a.minPayment != null ? ' · min payment ${hk(a.minPayment!)}' : ''}',
                   style: AppText.ui(
                     12,
@@ -227,7 +231,6 @@ class AccountDetailOverlay extends ConsumerWidget {
     final statements = s.upcomingStatements(a.id, today);
     if (statements.isEmpty) return const SizedBox.shrink();
     final grandTotal = statements.fold<double>(0, (sum, st) => sum + st.total);
-    final pending = pendingThisCycle(a.balance, a.statementBalance);
     return Column(
       children: [
         const SizedBox(height: 12),
@@ -271,12 +274,7 @@ class AccountDetailOverlay extends ConsumerWidget {
                   height: 1.4,
                 ),
               ),
-              for (var i = 0; i < statements.length; i++)
-                _statementBlock(
-                  statements[i],
-                  a.currency,
-                  pending: i == 0 ? pending : 0,
-                ),
+              for (final st in statements) _statementBlock(st, a.currency),
             ],
           ),
         ),
@@ -284,11 +282,7 @@ class AccountDetailOverlay extends ConsumerWidget {
     );
   }
 
-  Widget _statementBlock(
-    UpcomingStatement st,
-    String currency, {
-    double pending = 0,
-  }) {
+  Widget _statementBlock(UpcomingStatement st, String currency) {
     final header = [
       'Closes ${_dayLabel(st.close)}',
       if (st.due != null) 'due ${_dayLabel(st.due!)}',
@@ -309,7 +303,7 @@ class AccountDetailOverlay extends ConsumerWidget {
               ),
             ),
             Text(
-              money(st.total + pending, currency),
+              money(st.total, currency),
               style: AppText.mono(14, FontWeight.w700),
             ),
           ],
@@ -318,13 +312,6 @@ class AccountDetailOverlay extends ConsumerWidget {
         for (var i = 0; i < st.charges.length; i++) ...[
           if (i > 0) const SizedBox(height: 7),
           _chargeRow(st.charges[i], currency),
-        ],
-        if (pending > 0) ...[
-          const SizedBox(height: 7),
-          Text(
-            '+ ${money(pending, currency)} already posted this cycle',
-            style: AppText.muted12,
-          ),
         ],
       ],
     );

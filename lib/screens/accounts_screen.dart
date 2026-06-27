@@ -75,7 +75,11 @@ class AccountsScreen extends ConsumerWidget {
           const SizedBox(height: 10),
           for (var i = 0; i < credit.length; i++) ...[
             if (i > 0) const SizedBox(height: 10),
-            _creditCard(credit[i], () => n.openAccount(credit[i].id)),
+            _creditCard(
+              credit[i],
+              s.cardReserved(credit[i].id),
+              () => n.openAccount(credit[i].id),
+            ),
           ],
         ],
         const SizedBox(height: 22),
@@ -207,10 +211,10 @@ class AccountsScreen extends ConsumerWidget {
     );
   }
 
-  Widget _creditCard(Account a, VoidCallback onTap) {
+  Widget _creditCard(Account a, double reserved, VoidCallback onTap) {
     final limit = a.creditLimit ?? 0;
-    final used = limit > 0 ? (a.balance.abs() / limit).clamp(0.0, 1.0) : 0.0;
-    final available = limit - a.balance.abs();
+    final used = limit > 0 ? (reserved / limit).clamp(0.0, 1.0) : 0.0;
+    final available = limit - reserved;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: onTap,

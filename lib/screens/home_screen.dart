@@ -74,6 +74,7 @@ class HomeScreen extends ConsumerWidget {
                 pinned[i].isCreditCard
                     ? _creditPreviewCard(
                         pinned[i],
+                        s.cardReserved(pinned[i].id),
                         () => n.openAccount(pinned[i].id),
                       )
                     : _simpleAccountCard(
@@ -382,9 +383,9 @@ class HomeScreen extends ConsumerWidget {
     );
   }
 
-  Widget _creditPreviewCard(Account a, VoidCallback onTap) {
+  Widget _creditPreviewCard(Account a, double reserved, VoidCallback onTap) {
     final used = a.creditLimit != null && a.creditLimit! > 0
-        ? (a.balance.abs() / a.creditLimit!).clamp(0.0, 1.0)
+        ? (reserved / a.creditLimit!).clamp(0.0, 1.0)
         : 0.0;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,

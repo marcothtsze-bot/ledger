@@ -440,6 +440,24 @@ class LedgerState {
         (sum, r) => sum + r.amount * chargesBeforeNextClose(r, cardId, now),
       );
 
+  /// Remaining committed installment amount on card [cardId] — the months not
+  /// yet charged (already-charged sits in `balance`). Reserved against available
+  /// credit like a real merchant installment plan.
+  double installmentCommitmentRemaining(String cardId) => recurring
+      .where(
+        (r) => r.accountId == cardId && r.kind == RecurringKind.installment,
+      )
+      .fold(0, (sum, r) => sum + ((r.total ?? 0) - (r.paid ?? 0)) * r.amount);
+
+  /// What's effectively held against card [cardId]'s credit limit: the balance
+  /// owed plus committed-but-unbilled installment months.
+  double cardReserved(String cardId) {
+    final a = accountById(cardId);
+    return a == null
+        ? 0
+        : a.balance.abs() + installmentCommitmentRemaining(cardId);
+  }
+
   /// Projected upcoming statements for credit card [cardId] (skipping any with
   /// no committed charges), each listing the installments + subscriptions that
   /// land on it. By default the horizon stretches to cover the longest
