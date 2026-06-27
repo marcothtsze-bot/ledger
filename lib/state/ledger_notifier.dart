@@ -380,6 +380,14 @@ class LedgerNotifier extends Notifier<LedgerState> {
     }
   }
 
+  void chargeToCard(String id) {
+    state = state.chargeToCard(id).copyWith(payRecurringId: '');
+    if (state.toast.isNotEmpty) {
+      _persist();
+      _startToastTimer();
+    }
+  }
+
   /// Shows a short auto-dismissing toast with [message].
   void flashToast(String message) {
     state = state.copyWith(toast: message);

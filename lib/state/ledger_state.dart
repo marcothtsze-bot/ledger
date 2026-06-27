@@ -537,11 +537,17 @@ class LedgerState {
 
     final newAccounts = accounts.map((a) {
       var b = a.balance;
+      var stmt = a.statementBalance;
       if (a.id == accountId) {
         b += (txnType == TxnType.income) ? logged : -logged;
+        // A credit-card installment bills its monthly portion straight onto the
+        // current statement the day it's created — not just into pending charges.
+        if (repeat == RepeatMode.installment && a.isCreditCard) {
+          stmt = (a.statementBalance ?? 0) + logged;
+        }
       }
       if (txnType == TxnType.transfer && a.id == toAccountId) b += logged;
-      return a.copyWith(balance: b);
+      return a.copyWith(balance: b, statementBalance: stmt);
     }).toList();
 
     var inc = incomeMonth, exp = expenseMonth;
@@ -1156,6 +1162,57 @@ class LedgerState {
           .map((x) => x.id == id ? _advanceRecurring(x) : x)
           .toList(),
       toast: 'Marked settled',
+    );
+  }
+
+  /// Charges the next cycle of a credit-card recurring item [id] — subscription
+  /// or installment — straight onto that card's statement: bills the amount to
+  /// the card (raising both the statement balance and what's owed), logs it, and
+  /// advances the schedule. There is no separate pay-from account — the card
+  /// itself is charged. A no-op when the item isn't billed to a credit card.
+  LedgerState chargeToCard(String id) {
+    if (!recurring.any((r) => r.id == id)) return this;
+    final r = recurring.firstWhere((x) => x.id == id);
+    final card = accountById(r.accountId ?? '');
+    if (card == null || !card.isCreditCard) return this;
+    if (r.kind == RecurringKind.installment &&
+        (r.paid ?? 0) >= (r.total ?? 0)) {
+      return copyWith(toast: 'Installment plan is fully paid');
+    }
+    final catId = categories.any((c) => c.id == r.catId)
+        ? r.catId
+        : (categories.isNotEmpty ? categories.first.id : r.catId);
+    final note = r.kind == RecurringKind.installment
+        ? 'Installment ${(r.paid ?? 0) + 1} of ${r.total ?? 0}'
+        : null;
+    final tx = Txn(
+      id: _nextTxnId,
+      type: TxnType.expense,
+      amount: r.amount,
+      payee: r.name,
+      catId: catId,
+      acctId: card.id,
+      date: DateTime.now(),
+      foreign: note,
+    );
+    final newAccounts = accounts
+        .map(
+          (a) => a.id == card.id
+              ? a.copyWith(
+                  balance: a.balance - r.amount,
+                  statementBalance: (a.statementBalance ?? 0) + r.amount,
+                )
+              : a,
+        )
+        .toList();
+    return copyWith(
+      transactions: [tx, ...transactions],
+      accounts: newAccounts,
+      expenseMonth: expenseMonth + _toHkd(r.amount, card.id),
+      recurring: recurring
+          .map((x) => x.id == id ? _advanceRecurring(x) : x)
+          .toList(),
+      toast: 'Charged to ${card.name}',
     );
   }
 

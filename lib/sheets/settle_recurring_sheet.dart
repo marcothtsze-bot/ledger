@@ -30,6 +30,10 @@ class SettleRecurringSheet extends ConsumerWidget {
     final cat = s.categoryById(r.catId);
     final tint = hexColor(r.color ?? cat.color);
     final due = r.nextDate != null ? compactDate(r.nextDate!) : r.next;
+    final acct = s.accountById(r.accountId ?? '');
+    // A recurring billed to a credit card charges that card's statement
+    // directly — no separate pay-from account.
+    final isCardBilled = acct?.isCreditCard ?? false;
 
     return Stack(
       children: [
@@ -55,7 +59,7 @@ class SettleRecurringSheet extends ConsumerWidget {
                   children: [
                     const SheetHandle(),
                     SheetHeader(
-                      title: 'Pay ${r.name}',
+                      title: isCardBilled ? 'Charge ${r.name}' : 'Pay ${r.name}',
                       onCancel: n.closeSettleRecurring,
                     ),
                     Flexible(
@@ -67,70 +71,93 @@ class SettleRecurringSheet extends ConsumerWidget {
                             _summary(r.name, r.icon, cat.icon, tint,
                                 hk(r.amount), 'Due $due'),
                             const SizedBox(height: 18),
-                            Text(
-                              'PAY FROM',
-                              style: AppText.eyebrow().copyWith(fontSize: 11),
-                            ),
-                            const SizedBox(height: 10),
-                            for (final a in s.accounts) ...[
-                              GestureDetector(
-                                behavior: HitTestBehavior.opaque,
-                                onTap: () => n.payRecurring(r.id, a.id),
-                                child: Container(
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.card,
-                                    borderRadius:
-                                        BorderRadius.circular(AppRadii.card),
-                                    border:
-                                        Border.all(color: AppColors.hairline),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      AccountAvatar(account: a),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Text(
-                                          a.name,
-                                          style:
-                                              AppText.ui(15, FontWeight.w600),
-                                        ),
-                                      ),
-                                      Text(
-                                        signedMoney(a.balance, a.currency),
-                                        style: AppText.mono(13, FontWeight.w600,
-                                            color: AppColors.muted),
-                                      ),
-                                      const SizedBox(width: 6),
-                                      const Icon(Symbols.chevron_right_rounded,
-                                          size: 18, color: AppColors.muted),
-                                    ],
-                                  ),
-                                ),
+                            if (isCardBilled) ...[
+                              Text(
+                                'Billed straight to your ${acct!.name} '
+                                'statement — no separate payment needed.',
+                                style: AppText.ui(13, FontWeight.w400,
+                                    color: AppColors.muted, height: 1.4),
+                              ),
+                              const SizedBox(height: 14),
+                              _actionButton(
+                                label: 'Charge to ${acct.name}',
+                                filled: true,
+                                onTap: () => n.chargeToCard(r.id),
                               ),
                               const SizedBox(height: 9),
-                            ],
-                            const SizedBox(height: 6),
-                            GestureDetector(
-                              behavior: HitTestBehavior.opaque,
-                              onTap: () => n.settleRecurring(r.id),
-                              child: Container(
-                                width: double.infinity,
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 14),
-                                alignment: Alignment.center,
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(15),
-                                  border:
-                                      Border.all(color: AppColors.hairlineStrong),
+                              _actionButton(
+                                label: 'Mark settled (no charge)',
+                                filled: false,
+                                onTap: () => n.settleRecurring(r.id),
+                              ),
+                            ] else ...[
+                              Text(
+                                'PAY FROM',
+                                style: AppText.eyebrow().copyWith(fontSize: 11),
+                              ),
+                              const SizedBox(height: 10),
+                              for (final a in s.accounts) ...[
+                                GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onTap: () => n.payRecurring(r.id, a.id),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.card,
+                                      borderRadius:
+                                          BorderRadius.circular(AppRadii.card),
+                                      border:
+                                          Border.all(color: AppColors.hairline),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        AccountAvatar(account: a),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Text(
+                                            a.name,
+                                            style:
+                                                AppText.ui(15, FontWeight.w600),
+                                          ),
+                                        ),
+                                        Text(
+                                          signedMoney(a.balance, a.currency),
+                                          style: AppText.mono(
+                                              13, FontWeight.w600,
+                                              color: AppColors.muted),
+                                        ),
+                                        const SizedBox(width: 6),
+                                        const Icon(
+                                            Symbols.chevron_right_rounded,
+                                            size: 18, color: AppColors.muted),
+                                      ],
+                                    ),
+                                  ),
                                 ),
-                                child: Text(
-                                  'Mark settled (no transaction)',
-                                  style: AppText.ui(14, FontWeight.w600,
-                                      color: AppColors.mutedLight),
+                                const SizedBox(height: 9),
+                              ],
+                              const SizedBox(height: 6),
+                              GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () => n.settleRecurring(r.id),
+                                child: Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 14),
+                                  alignment: Alignment.center,
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(15),
+                                    border: Border.all(
+                                        color: AppColors.hairlineStrong),
+                                  ),
+                                  child: Text(
+                                    'Mark settled (no transaction)',
+                                    style: AppText.ui(14, FontWeight.w600,
+                                        color: AppColors.mutedLight),
+                                  ),
                                 ),
                               ),
-                            ),
+                            ],
                           ],
                         ),
                       ),
@@ -142,6 +169,32 @@ class SettleRecurringSheet extends ConsumerWidget {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _actionButton({
+    required String label,
+    required bool filled,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: filled ? AppColors.brand : null,
+          borderRadius: BorderRadius.circular(15),
+          border: filled ? null : Border.all(color: AppColors.hairlineStrong),
+        ),
+        child: Text(
+          label,
+          style: AppText.ui(14, FontWeight.w600,
+              color: filled ? AppColors.onBrand : AppColors.mutedLight),
+        ),
+      ),
     );
   }
 
