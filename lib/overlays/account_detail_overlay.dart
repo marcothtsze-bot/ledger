@@ -221,8 +221,6 @@ class AccountDetailOverlay extends ConsumerWidget {
     return (close, due);
   }
 
-  String _dayLabel(DateTime d) => '${monthAbbrev(d.month)} ${d.day}';
-
   /// One-line "new charges land on the statement closing X, due Y" for a card —
   /// makes clear that a charge made after the close is due a cycle later.
   String _nextStatementLine(Account a, DateTime today) {
@@ -235,115 +233,7 @@ class AccountDetailOverlay extends ConsumerWidget {
   Widget _committedSection(LedgerState s, Account a, DateTime today) {
     final statements = s.upcomingStatements(a.id, today);
     if (statements.isEmpty) return const SizedBox.shrink();
-    final grandTotal = statements.fold<double>(0, (sum, st) => sum + st.total);
-    return Column(
-      children: [
-        const SizedBox(height: 12),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: AppColors.card,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: AppColors.hairline),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'UPCOMING ON THIS CARD',
-                    style: AppText.eyebrow().copyWith(fontSize: 11),
-                  ),
-                  Text(
-                    money(grandTotal, a.currency),
-                    style: AppText.mono(
-                      15,
-                      FontWeight.w700,
-                      color: AppColors.amber,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Installments & subscriptions booked ahead, grouped by the '
-                'statement they land on — so you know what you owe before '
-                'buying more.',
-                style: AppText.ui(
-                  12,
-                  FontWeight.w400,
-                  color: AppColors.muted,
-                  height: 1.4,
-                ),
-              ),
-              for (final st in statements) _statementBlock(st, a.currency),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _statementBlock(UpcomingStatement st, String currency) {
-    final header = [
-      'Closes ${_dayLabel(st.close)}',
-      if (st.due != null) 'due ${_dayLabel(st.due!)}',
-    ].join(' · ');
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const SizedBox(height: 14),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Flexible(
-              child: Text(
-                header,
-                style: AppText.ui(12.5, FontWeight.w700, color: AppColors.brand),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            Text(
-              money(st.total, currency),
-              style: AppText.mono(14, FontWeight.w700),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        for (var i = 0; i < st.charges.length; i++) ...[
-          if (i > 0) const SizedBox(height: 7),
-          _chargeRow(st.charges[i], currency),
-        ],
-      ],
-    );
-  }
-
-  Widget _chargeRow(StatementCharge ch, String currency) {
-    final r = ch.source;
-    final isInstallment = r.kind == RecurringKind.installment;
-    final tag = isInstallment
-        ? (ch.count > 1 ? 'Installment ×${ch.count}' : 'Installment')
-        : (ch.count > 1 ? 'Subscription ×${ch.count}' : 'Subscription');
-    return Row(
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(r.name, style: AppText.ui(14, FontWeight.w600)),
-              const SizedBox(height: 1),
-              Text(tag, style: AppText.muted12),
-            ],
-          ),
-        ),
-        Text(money(ch.amount, currency), style: AppText.mono(14, FontWeight.w600)),
-      ],
-    );
+    return _UpcomingOnCard(statements: statements, currency: a.currency);
   }
 
   Widget _statementCard(
@@ -398,6 +288,9 @@ class AccountDetailOverlay extends ConsumerWidget {
     final stmt = a.statementBalance ?? 0;
     final pending = pendingThisCycle(a.balance, a.statementBalance);
     if (stmt <= 0) {
+      // A null statement balance means no statement has closed yet — the whole
+      // balance is still accumulating. Don't claim "cleared" when money is owed.
+      final neverClosed = a.statementBalance == null && a.balance.abs() > 0.005;
       return Container(
         width: double.infinity,
         padding: const EdgeInsets.all(16),
@@ -411,14 +304,16 @@ class AccountDetailOverlay extends ConsumerWidget {
           children: [
             Row(
               children: [
-                const Icon(
-                  Symbols.check_circle_rounded,
-                  color: AppColors.brand,
+                Icon(
+                  neverClosed
+                      ? Symbols.receipt_long_rounded
+                      : Symbols.check_circle_rounded,
+                  color: neverClosed ? AppColors.muted : AppColors.brand,
                   size: 20,
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  'Statement cleared',
+                  neverClosed ? 'No statement closed yet' : 'Statement cleared',
                   style: AppText.ui(15, FontWeight.w600),
                 ),
               ],
@@ -430,7 +325,7 @@ class AccountDetailOverlay extends ConsumerWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'Next statement (so far)',
+                  neverClosed ? 'Balance so far' : 'Next statement (so far)',
                   style: AppText.ui(
                     13,
                     FontWeight.w400,
@@ -550,6 +445,158 @@ class AccountDetailOverlay extends ConsumerWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+String _dayLabel(DateTime d) => '${monthAbbrev(d.month)} ${d.day}';
+
+/// The "Upcoming on this card" box — a collapsible forward look at the
+/// installments + subscriptions already committed to future statements. Starts
+/// collapsed (just the total) so the transactions below stay reachable.
+class _UpcomingOnCard extends StatefulWidget {
+  final List<UpcomingStatement> statements;
+  final String currency;
+  const _UpcomingOnCard({required this.statements, required this.currency});
+
+  @override
+  State<_UpcomingOnCard> createState() => _UpcomingOnCardState();
+}
+
+class _UpcomingOnCardState extends State<_UpcomingOnCard> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final statements = widget.statements;
+    final currency = widget.currency;
+    final grandTotal = statements.fold<double>(0, (sum, st) => sum + st.total);
+    final count = statements.length;
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.card,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: AppColors.hairline),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => setState(() => _expanded = !_expanded),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'UPCOMING ON THIS CARD',
+                          style: AppText.eyebrow().copyWith(fontSize: 11),
+                        ),
+                      ),
+                      Text(
+                        money(grandTotal, currency),
+                        style: AppText.mono(
+                          15,
+                          FontWeight.w700,
+                          color: AppColors.amber,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Icon(
+                        _expanded
+                            ? Symbols.expand_less_rounded
+                            : Symbols.expand_more_rounded,
+                        color: AppColors.muted,
+                        size: 22,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _expanded
+                        ? 'Installments & subscriptions booked ahead, grouped by '
+                              'the statement they land on.'
+                        : '$count upcoming statement${count == 1 ? '' : 's'} · tap to view',
+                    style: AppText.ui(
+                      12,
+                      FontWeight.w400,
+                      color: AppColors.muted,
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (_expanded)
+              for (final st in statements) _statementBlock(st, currency),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _statementBlock(UpcomingStatement st, String currency) {
+    final header = [
+      'Closes ${_dayLabel(st.close)}',
+      if (st.due != null) 'due ${_dayLabel(st.due!)}',
+    ].join(' · ');
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 14),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Flexible(
+              child: Text(
+                header,
+                style: AppText.ui(12.5, FontWeight.w700, color: AppColors.brand),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            Text(
+              money(st.total, currency),
+              style: AppText.mono(14, FontWeight.w700),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        for (var i = 0; i < st.charges.length; i++) ...[
+          if (i > 0) const SizedBox(height: 7),
+          _chargeRow(st.charges[i], currency),
+        ],
+      ],
+    );
+  }
+
+  Widget _chargeRow(StatementCharge ch, String currency) {
+    final r = ch.source;
+    final isInstallment = r.kind == RecurringKind.installment;
+    final tag = isInstallment
+        ? (ch.count > 1 ? 'Installment ×${ch.count}' : 'Installment')
+        : (ch.count > 1 ? 'Subscription ×${ch.count}' : 'Subscription');
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(r.name, style: AppText.ui(14, FontWeight.w600)),
+              const SizedBox(height: 1),
+              Text(tag, style: AppText.muted12),
+            ],
+          ),
+        ),
+        Text(money(ch.amount, currency), style: AppText.mono(14, FontWeight.w600)),
+      ],
     );
   }
 }
