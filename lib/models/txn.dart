@@ -14,6 +14,8 @@ class Txn {
   final DateTime date;
   final String? foreign;
   final String? toAcctId; // transfer destination account (transfers only)
+  final bool statementBilled; // charged onto a credit-card statement (installment
+  // / subscription billing) — so edit/delete can roll the statement back
 
   const Txn({
     required this.id,
@@ -25,6 +27,7 @@ class Txn {
     required this.date,
     this.foreign,
     this.toAcctId,
+    this.statementBilled = false,
   });
 
   Txn copyWith({
@@ -36,6 +39,7 @@ class Txn {
     DateTime? date,
     String? foreign,
     String? toAcctId,
+    bool? statementBilled,
   }) {
     return Txn(
       id: id,
@@ -47,6 +51,7 @@ class Txn {
       date: date ?? this.date,
       foreign: foreign ?? this.foreign,
       toAcctId: toAcctId ?? this.toAcctId,
+      statementBilled: statementBilled ?? this.statementBilled,
     );
   }
 
@@ -62,6 +67,7 @@ class Txn {
     'day': date.toIso8601String(),
     'foreign': foreign,
     'toAcctId': toAcctId,
+    'statementBilled': statementBilled ? 1 : 0,
   };
 
   factory Txn.fromMap(Map<String, Object?> m) => Txn(
@@ -74,5 +80,6 @@ class Txn {
     date: DateTime.tryParse(m['day'] as String? ?? '') ?? DateTime(2026, 6, 26),
     foreign: m['foreign'] as String?,
     toAcctId: m['toAcctId'] as String?,
+    statementBilled: ((m['statementBilled'] as num?)?.toInt() ?? 0) == 1,
   );
 }

@@ -69,7 +69,8 @@ class SettleRecurringSheet extends ConsumerWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             _summary(r.name, r.icon, cat.icon, tint,
-                                hk(r.amount), 'Due $due'),
+                                money(r.amount, acct?.currency ?? 'HKD'),
+                                'Due $due'),
                             const SizedBox(height: 18),
                             if (isCardBilled) ...[
                               Text(

@@ -379,13 +379,35 @@ class LedgerState {
     }).toList();
   }
 
-  /// Total amount (in the card's own currency) already committed to [cardId]'s
-  /// next statement from recurring charges.
+  /// How many times recurring [r] will charge [cardId] before its next
+  /// statement closes, as of [now] — a weekly item can recur several times in a
+  /// single statement, a monthly/installment at most once. Bounded by end date.
+  int chargesBeforeNextClose(Recurring r, String cardId, DateTime now) {
+    final card = accountById(cardId);
+    if (card == null || !card.isCreditCard) return 0;
+    final close = card.statementDay != null
+        ? nextOccurrence(card.statementDay!, now)
+        : DateTime(now.year, now.month + 1, now.day);
+    final nd = r.nextDate;
+    if (nd == null || nd.isAfter(close)) return 0;
+    if (r.freq != 'Weekly') return 1;
+    var count = 0;
+    var d = nd;
+    while (!d.isAfter(close)) {
+      if (r.endDate != null && d.isAfter(r.endDate!)) break;
+      count++;
+      d = d.add(const Duration(days: 7));
+    }
+    return count;
+  }
+
+  /// Total amount (in the card's own currency) committed to [cardId]'s next
+  /// statement — each item's amount times how many times it charges before close.
   double committedToNextStatement(String cardId, DateTime now) =>
-      commitmentsForNextStatement(
-        cardId,
-        now,
-      ).fold(0, (sum, r) => sum + r.amount);
+      commitmentsForNextStatement(cardId, now).fold(
+        0,
+        (sum, r) => sum + r.amount * chargesBeforeNextClose(r, cardId, now),
+      );
 
   /// Net-worth delta (base currency) a single transaction contributes: income
   /// lifts net worth, expense lowers it, a transfer nets to zero unless its two
@@ -559,6 +581,10 @@ class LedgerState {
         ? categoryById(categoryId).name
         : payee.trim();
     final txId = _nextTxnId;
+    // A credit-card installment bills its first month onto the statement, so
+    // mark the row to let edit/delete roll that statement charge back.
+    final billsCardStatement = repeat == RepeatMode.installment &&
+        (accountById(accountId)?.isCreditCard ?? false);
     final tx = Txn(
       id: txId,
       type: txnType,
@@ -571,6 +597,7 @@ class LedgerState {
           ? 'Installment 1 of $installMonths'
           : null,
       toAcctId: txnType == TxnType.transfer ? toAccountId : null,
+      statementBilled: billsCardStatement,
     );
 
     final newAccounts = accounts.map((a) {
@@ -697,6 +724,10 @@ class LedgerState {
     final pay = payee.trim().isEmpty
         ? categoryById(categoryId).name
         : payee.trim();
+    // A statement-billed charge stays billed only while it still lives on a
+    // credit card — so edit rolls the old charge back and re-bills the new one.
+    final stillBilled =
+        old.statementBilled && (accountById(accountId)?.isCreditCard ?? false);
     final updated = Txn(
       id: old.id,
       type: txnType,
@@ -707,17 +738,24 @@ class LedgerState {
       date: txnDate,
       foreign: old.foreign,
       toAcctId: txnType == TxnType.transfer ? toAccountId : null,
+      statementBilled: stillBilled,
     );
 
     final newAccounts = accounts.map((a) {
       var b = a.balance;
+      var stmt = a.statementBalance;
       if (a.id == old.acctId) {
         b += (old.type == TxnType.income) ? -old.amount : old.amount;
+        if (old.statementBilled && a.isCreditCard) stmt = (stmt ?? 0) - old.amount;
       }
       if (old.type == TxnType.transfer && a.id == old.toAcctId) b -= old.amount;
-      if (a.id == accountId) b += (txnType == TxnType.income) ? amt : -amt;
+      if (a.id == accountId) {
+        b += (txnType == TxnType.income) ? amt : -amt;
+        if (stillBilled && a.isCreditCard) stmt = (stmt ?? 0) + amt;
+      }
       if (txnType == TxnType.transfer && a.id == toAccountId) b += amt;
-      return a.copyWith(balance: b);
+      final floored = stmt == null ? null : (stmt < 0 ? 0.0 : stmt);
+      return a.copyWith(balance: b, statementBalance: floored);
     }).toList();
 
     var inc = incomeMonth, exp = expenseMonth;
@@ -757,11 +795,17 @@ class LedgerState {
     if (old == null) return copyWith(sheetOpen: false, editingTxnId: 0);
     final newAccounts = accounts.map((a) {
       var b = a.balance;
+      var stmt = a.statementBalance;
       if (a.id == old.acctId) {
         b += (old.type == TxnType.income) ? -old.amount : old.amount;
+        // Roll back the statement charge this row billed onto the card.
+        if (old.statementBilled && a.isCreditCard) {
+          final v = (stmt ?? 0) - old.amount;
+          stmt = v < 0 ? 0.0 : v;
+        }
       }
       if (old.type == TxnType.transfer && a.id == old.toAcctId) b -= old.amount;
-      return a.copyWith(balance: b);
+      return a.copyWith(balance: b, statementBalance: stmt);
     }).toList();
     var inc = incomeMonth, exp = expenseMonth;
     final oldHkd = _toHkd(old.amount, old.acctId);
@@ -921,11 +965,18 @@ class LedgerState {
     final card = accountById(payCardId);
     final from = accountById(fromId);
     if (card == null || from == null) return copyWith(payCardId: '');
-    final amount = card.statementBalance ?? 0;
+    final amount = card.statementBalance ?? 0; // in the card's currency
     if (amount <= 0) return copyWith(payCardId: '');
 
+    // The statement is owed in the card's currency; debit the paying account in
+    // ITS currency (e.g. paying a US$ card statement from an HK$ account moves
+    // the HK$ equivalent), so net worth stays unchanged.
+    final payerRate = from.rateToHkd == 0 ? 1.0 : from.rateToHkd;
+    final payerAmount = amount * card.rateToHkd / payerRate;
     final next = accounts.map((a) {
-      if (a.id == from.id) return a.copyWith(balance: a.balance - amount);
+      if (a.id == from.id) {
+        return a.copyWith(balance: a.balance - payerAmount);
+      }
       if (a.id == card.id) {
         return a.copyWith(balance: a.balance + amount, statementBalance: 0);
       }
@@ -939,10 +990,11 @@ class LedgerState {
     final tx = Txn(
       id: _nextTxnId,
       type: TxnType.transfer,
-      amount: amount,
+      amount: payerAmount,
       payee: '${card.name} payment',
       catId: payCatId,
       acctId: from.id,
+      toAcctId: card.id,
       date: DateTime.now(),
     );
 
@@ -1266,6 +1318,7 @@ class LedgerState {
       acctId: card.id,
       date: DateTime.now(),
       foreign: note,
+      statementBilled: true,
     );
     final newAccounts = accounts
         .map(

@@ -310,7 +310,7 @@ class AccountsScreen extends ConsumerWidget {
                         ),
                         const SizedBox(height: 3),
                         Text(
-                          hk(a.statementBalance ?? 0),
+                          money(a.statementBalance ?? 0, a.currency),
                           style: AppText.mono(
                             15,
                             FontWeight.w600,

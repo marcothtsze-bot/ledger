@@ -79,7 +79,7 @@ class PayStatementSheet extends ConsumerWidget {
                                   crossAxisAlignment: CrossAxisAlignment.end,
                                   children: [
                                     Text(
-                                      hk(amount),
+                                      money(amount, card.currency),
                                       style: AppText.mono(28, FontWeight.w600),
                                     ),
                                     const SizedBox(width: 8),

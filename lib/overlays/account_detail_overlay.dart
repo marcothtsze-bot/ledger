@@ -275,7 +275,11 @@ class AccountDetailOverlay extends ConsumerWidget {
               const SizedBox(height: 13),
               for (var i = 0; i < items.length; i++) ...[
                 if (i > 0) const SizedBox(height: 9),
-                _commitmentRow(items[i], a.currency),
+                _commitmentRow(
+                  items[i],
+                  s.chargesBeforeNextClose(items[i], a.id, today),
+                  a.currency,
+                ),
               ],
               const SizedBox(height: 13),
               Container(height: 1, color: AppColors.hairline),
@@ -315,11 +319,14 @@ class AccountDetailOverlay extends ConsumerWidget {
     );
   }
 
-  Widget _commitmentRow(Recurring r, String currency) {
+  Widget _commitmentRow(Recurring r, int charges, String currency) {
     final isInstallment = r.kind == RecurringKind.installment;
+    final total = r.amount * (charges < 1 ? 1 : charges);
     final tag = isInstallment
         ? 'Installment ${(r.paid ?? 0) + 1} of ${r.total ?? 0}'
-        : 'Subscription';
+        : (charges > 1
+              ? 'Subscription · ${money(r.amount, currency)} ×$charges'
+              : 'Subscription');
     return Row(
       children: [
         Expanded(
@@ -333,7 +340,7 @@ class AccountDetailOverlay extends ConsumerWidget {
             ],
           ),
         ),
-        Text(money(r.amount, currency), style: AppText.mono(14, FontWeight.w600)),
+        Text(money(total, currency), style: AppText.mono(14, FontWeight.w600)),
       ],
     );
   }
@@ -429,7 +436,10 @@ class AccountDetailOverlay extends ConsumerWidget {
                     color: AppColors.muted,
                   ),
                 ),
-                Text(hk(pending), style: AppText.mono(15, FontWeight.w600)),
+                Text(
+                  money(pending, a.currency),
+                  style: AppText.mono(15, FontWeight.w600),
+                ),
               ],
             ),
             if (a.statementDay != null) ...[
@@ -470,7 +480,7 @@ class AccountDetailOverlay extends ConsumerWidget {
                   ),
                   const SizedBox(height: 7),
                   Text(
-                    hk(a.statementBalance ?? 0),
+                    money(a.statementBalance ?? 0, a.currency),
                     style: AppText.mono(26, FontWeight.w600),
                   ),
                 ],
