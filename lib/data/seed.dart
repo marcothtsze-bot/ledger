@@ -110,10 +110,11 @@ List<Account> seedAccounts() => [
     color: '#5b8cff',
     bg: '#1f2c3f',
     currency: 'USD',
+    fxRate: 7.8,
     balance: 9680,
     nature: AccountNature.asset,
     group: 'cashbank',
-    note: '≈ FX 7.81',
+    note: '≈ FX 7.80',
   ),
   const Account(
     id: 'cash',

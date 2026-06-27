@@ -1,5 +1,6 @@
 import 'dart:math';
 
+import '../core/fx.dart';
 import '../core/money.dart';
 import '../core/statement.dart';
 import '../data/ledger_repository.dart';
@@ -33,6 +34,21 @@ class ActivityGroup {
     required this.items,
     required this.total,
   });
+}
+
+/// One calendar month's income vs expense totals (base currency), for the
+/// Insights cash-flow chart.
+class MonthlyFlow {
+  final DateTime month; // first day of the month
+  final double income;
+  final double expense;
+  const MonthlyFlow({
+    required this.month,
+    required this.income,
+    required this.expense,
+  });
+
+  double get net => income - expense;
 }
 
 const _unknownCategory = Category(
@@ -97,6 +113,7 @@ class LedgerState {
   final String newIcon; // chosen account icon ligature; '' = auto
   final String newType;
   final String newCurrency;
+  final String newFxRate; // base-currency value of 1 unit (non-base accounts)
   final String newBalance;
   final bool newInvalid;
   final String newLimit; // credit card credit limit
@@ -150,6 +167,7 @@ class LedgerState {
     required this.newIcon,
     required this.newType,
     required this.newCurrency,
+    required this.newFxRate,
     required this.newBalance,
     required this.newInvalid,
     required this.newLimit,
@@ -201,6 +219,7 @@ class LedgerState {
     newIcon: '',
     newType: 'Debit',
     newCurrency: 'HKD',
+    newFxRate: '',
     newBalance: '',
     newInvalid: false,
     newLimit: '',
@@ -281,21 +300,80 @@ class LedgerState {
   Category categoryById(String id) =>
       categories.firstWhere((c) => c.id == id, orElse: () => _unknownCategory);
 
-  double get netWorth => accounts.fold(0, (sum, a) => sum + a.balance);
+  /// Converts [amount], denominated in account [acctId]'s currency, into the
+  /// base currency. Falls back to 1:1 when the account is unknown so a stray id
+  /// never silently zeroes a figure.
+  double _toHkd(double amount, String acctId) {
+    final a = accountById(acctId);
+    return a == null ? amount : amount * a.rateToHkd;
+  }
 
-  double get assets =>
-      accounts.where((a) => a.balance > 0).fold(0, (sum, a) => sum + a.balance);
+  /// Total net worth in the base currency — every account's balance converted
+  /// at its own rate, so a ¥ or US$ account is no longer counted as HK$.
+  double get netWorth => accounts.fold(0, (sum, a) => sum + a.balanceHkd);
+
+  double get assets => accounts
+      .where((a) => a.balance > 0)
+      .fold<double>(0, (sum, a) => sum + a.balanceHkd);
 
   double get liabilities => accounts
       .where((a) => a.balance < 0)
-      .fold<double>(0, (sum, a) => sum + a.balance)
+      .fold<double>(0, (sum, a) => sum + a.balanceHkd)
       .abs();
 
-  /// Normalised monthly value of all recurring commitments (weekly ×4.33).
-  double get recurringMonthly => recurring.fold(
-    0,
-    (sum, r) => sum + (r.freq == 'Weekly' ? r.amount * 4.33 : r.amount),
-  );
+  /// Normalised monthly value of all recurring commitments (weekly ×4.33),
+  /// each converted from its pay-from account's currency into the base.
+  double get recurringMonthly => recurring.fold(0, (sum, r) {
+    final monthly = r.freq == 'Weekly' ? r.amount * 4.33 : r.amount;
+    return sum + _toHkd(monthly, r.accountId ?? '');
+  });
+
+  /// Net-worth delta (base currency) a single transaction contributes: income
+  /// lifts net worth, expense lowers it, a transfer nets to zero unless its two
+  /// accounts convert at different rates.
+  double _txnNetWorthDelta(Txn t) => switch (t.type) {
+    TxnType.income => _toHkd(t.amount, t.acctId),
+    TxnType.expense => -_toHkd(t.amount, t.acctId),
+    TxnType.transfer =>
+      _toHkd(t.amount, t.toAcctId ?? '') - _toHkd(t.amount, t.acctId),
+  };
+
+  /// Net worth (base currency) as of the end of [day], reconstructed by undoing
+  /// every transaction dated after [day]. Account opening balances have no
+  /// transaction, so they are treated as present throughout — the honest limit
+  /// of deriving history from transactions alone.
+  double netWorthAsOf(DateTime day) {
+    final cutoff = DateTime(day.year, day.month, day.day, 23, 59, 59, 999);
+    var nw = netWorth;
+    for (final t in transactions) {
+      if (t.date.isAfter(cutoff)) nw -= _txnNetWorthDelta(t);
+    }
+    return nw;
+  }
+
+  /// Change in net worth since the end of the previous calendar month relative
+  /// to [now], or `null` when there is no transaction history before this month
+  /// — so the UI shows an honest "tracking from this month" instead of inventing
+  /// a figure.
+  double? netWorthChangeSinceLastMonth(DateTime now) {
+    final monthStart = DateTime(now.year, now.month, 1);
+    if (!transactions.any((t) => t.date.isBefore(monthStart))) return null;
+    final prevMonthEnd = monthStart.subtract(const Duration(days: 1));
+    return netWorth - netWorthAsOf(prevMonthEnd);
+  }
+
+  /// A short net-worth trend series (base currency), oldest → newest, taken at
+  /// the dates of the most recent transactions and ending at today's net worth.
+  /// Empty when there are fewer than two transactions to draw a real line from.
+  List<double> netWorthTrend({int points = 8}) {
+    if (transactions.length < 2) return const [];
+    final dates = (transactions.map((t) => t.date).toList())
+      ..sort((a, b) => a.compareTo(b));
+    final recent = dates.length <= points
+        ? dates
+        : dates.sublist(dates.length - points);
+    return [for (final d in recent) netWorthAsOf(d)];
+  }
 
   List<Recurring> get subscriptions =>
       recurring.where((r) => r.kind == RecurringKind.sub).toList();
@@ -354,10 +432,10 @@ class LedgerState {
 
     return keys.map((k) {
       final items = byDay[k]!..sort((a, b) => b.date.compareTo(a.date));
-      final total = items.fold<double>(
-        0,
-        (sum, t) => sum + (t.type == TxnType.income ? t.amount : -t.amount),
-      );
+      final total = items.fold<double>(0, (sum, t) {
+        final v = _toHkd(t.amount, t.acctId);
+        return sum + (t.type == TxnType.income ? v : -v);
+      });
       return ActivityGroup(date: items.first.date, items: items, total: total);
     }).toList();
   }
@@ -434,10 +512,11 @@ class LedgerState {
     }).toList();
 
     var inc = incomeMonth, exp = expenseMonth;
+    final loggedHkd = _toHkd(logged, accountId);
     if (txnType == TxnType.income) {
-      inc += logged;
+      inc += loggedHkd;
     } else if (txnType == TxnType.expense) {
-      exp += logged;
+      exp += loggedHkd;
     }
 
     var newRecurring = recurring;
@@ -563,15 +642,17 @@ class LedgerState {
     }).toList();
 
     var inc = incomeMonth, exp = expenseMonth;
+    final oldHkd = _toHkd(old.amount, old.acctId);
     if (old.type == TxnType.income) {
-      inc -= old.amount;
+      inc -= oldHkd;
     } else if (old.type == TxnType.expense) {
-      exp -= old.amount;
+      exp -= oldHkd;
     }
+    final newHkd = _toHkd(amt, accountId);
     if (txnType == TxnType.income) {
-      inc += amt;
+      inc += newHkd;
     } else if (txnType == TxnType.expense) {
-      exp += amt;
+      exp += newHkd;
     }
 
     return copyWith(
@@ -604,10 +685,11 @@ class LedgerState {
       return a.copyWith(balance: b);
     }).toList();
     var inc = incomeMonth, exp = expenseMonth;
+    final oldHkd = _toHkd(old.amount, old.acctId);
     if (old.type == TxnType.income) {
-      inc -= old.amount;
+      inc -= oldHkd;
     } else if (old.type == TxnType.expense) {
-      exp -= old.amount;
+      exp -= oldHkd;
     }
     return copyWith(
       transactions: transactions.where((t) => t.id != id).toList(),
@@ -640,6 +722,7 @@ class LedgerState {
         name: name,
         icon: newIcon.isEmpty ? null : newIcon,
         balance: newBal,
+        fxRate: newFxRate.isEmpty ? existing.fxRate : parseAmount(newFxRate),
         creditLimit: newLimit.isEmpty
             ? existing.creditLimit
             : parseAmount(newLimit),
@@ -699,6 +782,9 @@ class LedgerState {
       color: color,
       bg: '${color}29',
       currency: newCurrency,
+      fxRate: newCurrency.toUpperCase() == kBaseCurrency
+          ? null
+          : (newFxRate.isEmpty ? null : parseAmount(newFxRate)),
       balance: balance,
       nature: isLiab ? AccountNature.liability : AccountNature.asset,
       group: group,
@@ -730,6 +816,7 @@ class LedgerState {
     newBalance: '',
     newType: 'Debit',
     newCurrency: 'HKD',
+    newFxRate: '',
     newInvalid: false,
     newLimit: '',
     newStatementDay: '',
@@ -817,10 +904,11 @@ class LedgerState {
     final remaining = accounts.where((a) => a.id != id).toList();
     var inc = incomeMonth, exp = expenseMonth;
     for (final t in transactions.where((t) => t.acctId == id)) {
+      final v = _toHkd(t.amount, id);
       if (t.type == TxnType.income) {
-        inc -= t.amount;
+        inc -= v;
       } else if (t.type == TxnType.expense) {
-        exp -= t.amount;
+        exp -= v;
       }
     }
     final fallback = remaining.isNotEmpty ? remaining.first.id : '';
@@ -1018,7 +1106,7 @@ class LedgerState {
     return copyWith(
       transactions: [tx, ...transactions],
       accounts: newAccounts,
-      expenseMonth: expenseMonth + r.amount,
+      expenseMonth: expenseMonth + _toHkd(r.amount, fromAccountId),
       recurring: recurring
           .map((x) => x.id == id ? _advanceRecurring(x) : x)
           .toList(),
@@ -1047,7 +1135,54 @@ class LedgerState {
     for (final t in transactions) {
       if (t.type != TxnType.expense) continue;
       if (t.date.year != now.year || t.date.month != now.month) continue;
-      out[t.catId] = (out[t.catId] ?? 0) + t.amount;
+      out[t.catId] = (out[t.catId] ?? 0) + _toHkd(t.amount, t.acctId);
+    }
+    return out;
+  }
+
+  /// Income & expense totals (base currency) for the [months] calendar months
+  /// ending with the month containing [now], oldest → newest. Transfers are
+  /// excluded; every amount is converted from its account's currency.
+  List<MonthlyFlow> monthlyFlow(DateTime now, int months) {
+    final count = months < 1 ? 1 : months;
+    final income = <String, double>{};
+    final expense = <String, double>{};
+    String key(int year, int month) => '$year-$month';
+    for (final t in transactions) {
+      if (t.type == TxnType.transfer) continue;
+      final k = key(t.date.year, t.date.month);
+      final v = _toHkd(t.amount, t.acctId);
+      if (t.type == TxnType.income) {
+        income[k] = (income[k] ?? 0) + v;
+      } else {
+        expense[k] = (expense[k] ?? 0) + v;
+      }
+    }
+    final out = <MonthlyFlow>[];
+    for (var i = count - 1; i >= 0; i--) {
+      final m = DateTime(now.year, now.month - i, 1);
+      out.add(
+        MonthlyFlow(
+          month: m,
+          income: income[key(m.year, m.month)] ?? 0,
+          expense: expense[key(m.year, m.month)] ?? 0,
+        ),
+      );
+    }
+    return out;
+  }
+
+  /// Expense by category (base currency) for transactions dated on or after
+  /// [from] and on or before [to]. Each amount is converted from its account's
+  /// currency so a foreign purchase lands in HKD.
+  Map<String, double> categorySpendInRange(DateTime from, DateTime to) {
+    final start = DateTime(from.year, from.month, from.day);
+    final end = DateTime(to.year, to.month, to.day, 23, 59, 59, 999);
+    final out = <String, double>{};
+    for (final t in transactions) {
+      if (t.type != TxnType.expense) continue;
+      if (t.date.isBefore(start) || t.date.isAfter(end)) continue;
+      out[t.catId] = (out[t.catId] ?? 0) + _toHkd(t.amount, t.acctId);
     }
     return out;
   }
@@ -1094,6 +1229,7 @@ class LedgerState {
     String? newIcon,
     String? newType,
     String? newCurrency,
+    String? newFxRate,
     String? newBalance,
     bool? newInvalid,
     String? newLimit,
@@ -1143,6 +1279,7 @@ class LedgerState {
       newIcon: newIcon ?? this.newIcon,
       newType: newType ?? this.newType,
       newCurrency: newCurrency ?? this.newCurrency,
+      newFxRate: newFxRate ?? this.newFxRate,
       newBalance: newBalance ?? this.newBalance,
       newInvalid: newInvalid ?? this.newInvalid,
       newLimit: newLimit ?? this.newLimit,

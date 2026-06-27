@@ -28,6 +28,7 @@ class AddAccountSheet extends ConsumerStatefulWidget {
 class _AddAccountSheetState extends ConsumerState<AddAccountSheet> {
   late final TextEditingController _name;
   late final TextEditingController _balance;
+  late final TextEditingController _fxRate;
   late final TextEditingController _limit;
   late final TextEditingController _stmtDay;
   late final TextEditingController _dueDay;
@@ -40,6 +41,7 @@ class _AddAccountSheetState extends ConsumerState<AddAccountSheet> {
     final s = ref.read(ledgerProvider);
     _name = TextEditingController(text: s.newName);
     _balance = TextEditingController(text: s.newBalance);
+    _fxRate = TextEditingController(text: s.newFxRate);
     _limit = TextEditingController(text: s.newLimit);
     _stmtDay = TextEditingController(text: s.newStatementDay);
     _dueDay = TextEditingController(text: s.newDueDay);
@@ -48,7 +50,15 @@ class _AddAccountSheetState extends ConsumerState<AddAccountSheet> {
 
   @override
   void dispose() {
-    for (final c in [_name, _balance, _limit, _stmtDay, _dueDay, _stmtBal]) {
+    for (final c in [
+      _name,
+      _balance,
+      _fxRate,
+      _limit,
+      _stmtDay,
+      _dueDay,
+      _stmtBal,
+    ]) {
       c.dispose();
     }
     super.dispose();
@@ -58,6 +68,16 @@ class _AddAccountSheetState extends ConsumerState<AddAccountSheet> {
   Widget build(BuildContext context) {
     final s = ref.watch(ledgerProvider);
     final n = ref.read(ledgerProvider.notifier);
+
+    // Picking a non-HKD currency pre-fills the rate in state, so keep the
+    // text field in step when it changes from outside the field itself.
+    if (_fxRate.text != s.newFxRate) {
+      _fxRate.value = TextEditingValue(
+        text: s.newFxRate,
+        selection: TextSelection.collapsed(offset: s.newFxRate.length),
+      );
+    }
+    final showFx = s.newCurrency.toUpperCase() != 'HKD';
 
     final editing = s.editingAccountId.isNotEmpty;
     final edited = editing ? s.accountById(s.editingAccountId) : null;
@@ -203,6 +223,26 @@ class _AddAccountSheetState extends ConsumerState<AddAccountSheet> {
                                       ),
                                     ],
                                   ],
+                                ),
+                              ],
+                              if (showFx) ...[
+                                const SizedBox(height: 17),
+                                _fieldLabel('Exchange rate'),
+                                const SizedBox(height: 7),
+                                _input(
+                                  controller: _fxRate,
+                                  onChanged: n.setNewFxRate,
+                                  hint: 'e.g. 0.05',
+                                  borderColor: AppColors.hairline,
+                                  mono: true,
+                                  number: true,
+                                ),
+                                const SizedBox(height: 7),
+                                Text(
+                                  '1 ${s.newCurrency.toUpperCase()} = '
+                                  'HK\$${s.newFxRate.isEmpty ? '?' : s.newFxRate}'
+                                  ' · used for your HKD net-worth & totals',
+                                  style: AppText.muted12,
                                 ),
                               ],
                               const SizedBox(height: 17),

@@ -6,13 +6,15 @@ void main() {
   final base = LedgerState.initial();
 
   group('derivations', () {
-    test('net worth sums all balances', () {
-      // 52100 − 8420 + 9680 + 2150 + 218400 + 208390
-      expect(base.netWorth, 482300);
+    test('net worth sums all balances, converting foreign currency to HKD', () {
+      // Wise is USD 9,680 @ 7.8 = 75,504 HKD; the rest are HKD.
+      // 52100 − 8420 + 75504 + 2150 + 218400 + 208390
+      expect(base.netWorth, closeTo(548124, 0.01));
     });
 
-    test('assets and liabilities split by sign', () {
-      expect(base.assets, 490720);
+    test('assets and liabilities split by sign (in HKD)', () {
+      // 52100 + 75504 + 2150 + 218400 + 208390
+      expect(base.assets, closeTo(556544, 0.01));
       expect(base.liabilities, 8420);
     });
 

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/fx.dart';
 import '../data/backup.dart';
 import '../data/ledger_repository.dart';
 import '../models/enums.dart';
@@ -113,6 +114,10 @@ class LedgerNotifier extends Notifier<LedgerState> {
 
   static String _amountString(double v) =>
       v == v.roundToDouble() ? v.toInt().toString() : v.toString();
+
+  /// Formats an FX rate for the editable field, trimming a redundant `.0`.
+  static String _rateString(double v) =>
+      v == v.roundToDouble() ? v.toInt().toString() : v.toString();
   void openRecurring() =>
       state = state.copyWith(overlay: LedgerOverlay.recurring);
   void openAccount(String id) =>
@@ -126,6 +131,7 @@ class LedgerNotifier extends Notifier<LedgerState> {
     newIcon: '',
     newType: 'Debit',
     newCurrency: 'HKD',
+    newFxRate: '',
     newBalance: '',
     newInvalid: false,
     newLimit: '',
@@ -145,7 +151,10 @@ class LedgerNotifier extends Notifier<LedgerState> {
       newName: a.name,
       newIcon: a.icon ?? '',
       newType: a.isLiability ? 'Credit' : 'Debit',
-      newCurrency: 'HKD',
+      newCurrency: a.currency,
+      newFxRate: a.currency.toUpperCase() == kBaseCurrency
+          ? ''
+          : _rateString(a.fxRate ?? defaultRateToHkd(a.currency)),
       newBalance: a.balance == 0 ? '' : num0(a.balance),
       newInvalid: false,
       newLimit: num0(a.creditLimit),
@@ -160,6 +169,7 @@ class LedgerNotifier extends Notifier<LedgerState> {
     editingAccountId: '',
     newName: '',
     newIcon: '',
+    newFxRate: '',
     newBalance: '',
     newInvalid: false,
     newLimit: '',
@@ -264,7 +274,17 @@ class LedgerNotifier extends Notifier<LedgerState> {
       state = state.copyWith(newName: v, newInvalid: false);
   void setNewIcon(String v) => state = state.copyWith(newIcon: v);
   void setNewType(String v) => state = state.copyWith(newType: v);
-  void setNewCurrency(String v) => state = state.copyWith(newCurrency: v);
+
+  /// Picks the account currency and, for a non-base currency, pre-fills the
+  /// rate field with the built-in default so the user sees a sensible number to
+  /// keep or correct (cleared back to blank for the base currency).
+  void setNewCurrency(String v) => state = state.copyWith(
+    newCurrency: v,
+    newFxRate: v.toUpperCase() == kBaseCurrency
+        ? ''
+        : _rateString(defaultRateToHkd(v)),
+  );
+  void setNewFxRate(String v) => state = state.copyWith(newFxRate: v);
   void setNewBalance(String v) => state = state.copyWith(newBalance: v);
   void setNewLimit(String v) => state = state.copyWith(newLimit: v);
   void setNewStatementDay(String v) =>

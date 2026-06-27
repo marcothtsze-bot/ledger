@@ -1,3 +1,4 @@
+import '../core/fx.dart';
 import 'enums.dart';
 
 /// Sentinel marking "argument not provided" so [Account.copyWith] can tell an
@@ -17,6 +18,7 @@ class Account {
   final String color;
   final String bg;
   final String currency; // ISO code, e.g. 'HKD', 'USD', 'JPY'
+  final double? fxRate; // base-currency value of 1 unit; null = use the default
   final double balance; // negative for liabilities (credit owed, loans)
   final AccountNature nature;
   final String? group; // 'cashbank' | 'credit' | 'invest'
@@ -37,6 +39,7 @@ class Account {
     required this.color,
     required this.bg,
     this.currency = 'HKD',
+    this.fxRate,
     required this.balance,
     required this.nature,
     this.group,
@@ -54,6 +57,16 @@ class Account {
 
   bool get isCreditCard => group == 'credit';
 
+  /// Base-currency ([kBaseCurrency]) value of one unit of this account's
+  /// currency: its own [fxRate] when set, otherwise the built-in default. Base
+  /// accounts are always 1:1 so they never depend on a rate.
+  double get rateToHkd => currency.toUpperCase() == kBaseCurrency
+      ? 1.0
+      : (fxRate ?? defaultRateToHkd(currency));
+
+  /// This account's [balance] converted into the base currency.
+  double get balanceHkd => balance * rateToHkd;
+
   /// Returns a new Account with the given fields replaced (immutable update).
   Account copyWith({
     String? name,
@@ -62,6 +75,7 @@ class Account {
     String? color,
     String? bg,
     String? currency,
+    double? fxRate,
     double? balance,
     AccountNature? nature,
     String? group,
@@ -82,6 +96,7 @@ class Account {
       color: color ?? this.color,
       bg: bg ?? this.bg,
       currency: currency ?? this.currency,
+      fxRate: fxRate ?? this.fxRate,
       balance: balance ?? this.balance,
       nature: nature ?? this.nature,
       group: group ?? this.group,
@@ -104,6 +119,7 @@ class Account {
     'color': color,
     'bg': bg,
     'currency': currency,
+    'fxRate': fxRate,
     'balance': balance,
     'nature': nature.name,
     'grp': group,
@@ -125,6 +141,7 @@ class Account {
     color: m['color'] as String,
     bg: m['bg'] as String,
     currency: m['currency'] as String? ?? 'HKD',
+    fxRate: (m['fxRate'] as num?)?.toDouble(),
     balance: (m['balance'] as num).toDouble(),
     nature: enumByName(AccountNature.values, m['nature'], AccountNature.asset),
     group: m['grp'] as String?,

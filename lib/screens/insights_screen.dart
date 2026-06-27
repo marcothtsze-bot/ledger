@@ -1,9 +1,12 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../charts/donut_chart.dart';
 import '../charts/line_charts.dart';
 import '../core/money.dart';
+import '../core/statement.dart';
 import '../state/ledger_notifier.dart';
 import '../state/ledger_state.dart';
 import '../theme/hex_color.dart';
@@ -41,9 +44,9 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
           onChanged: (i) => setState(() => _period = i),
         ),
         const SizedBox(height: 20),
-        _cashFlowCard(),
+        _cashFlowCard(s),
         const SizedBox(height: 16),
-        _spendingCard(),
+        _spendingCard(s),
         const SizedBox(height: 16),
         _budgetsCard(s, n),
         const SizedBox(height: 16),
@@ -54,7 +57,7 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
           n.openRecurring,
         ),
         const SizedBox(height: 16),
-        _trendCard(),
+        _trendCard(s),
       ],
     );
   }
@@ -162,7 +165,35 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
     );
   }
 
-  Widget _cashFlowCard() {
+  /// Number of monthly bars the cash-flow chart shows for the active period.
+  int _flowMonths(DateTime now) => switch (_period) {
+    0 => 3, // 3M
+    1 => 1, // MTD
+    2 => 12, // 12M
+    _ => now.month, // YTD (Jan..now)
+  };
+
+  /// Inclusive start date for the spending breakdown of the active period.
+  DateTime _spendStart(DateTime now) => switch (_period) {
+    0 => DateTime(now.year, now.month - 2, 1), // 3M
+    1 => DateTime(now.year, now.month, 1), // MTD
+    2 => DateTime(now.year, now.month - 11, 1), // 12M
+    _ => DateTime(now.year, 1, 1), // YTD
+  };
+
+  /// Compact money label, e.g. 16234 -> '16.2k'.
+  String _compact(double v) =>
+      v >= 1000 ? '${(v / 1000).toStringAsFixed(1)}k' : v.round().toString();
+
+  Widget _cashFlowCard(LedgerState s) {
+    final now = DateTime.now();
+    final flows = s.monthlyFlow(now, _flowMonths(now));
+    final net = flows.fold<double>(0, (sum, f) => sum + f.net);
+    final peak = flows.fold<double>(
+      1,
+      (m, f) => max(m, max(f.income, f.expense)),
+    );
+    final up = net >= 0;
     return _statCardShell(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -172,11 +203,11 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
             children: [
               Text('Cash flow', style: AppText.ui(15, FontWeight.w700)),
               Text(
-                'net +16.2k',
+                'net ${up ? '+' : '−'}${_compact(net.abs())}',
                 style: AppText.mono(
                   13,
                   FontWeight.w600,
-                  color: AppColors.brand,
+                  color: up ? AppColors.brand : AppColors.expense,
                 ),
               ),
             ],
@@ -187,9 +218,13 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                _barGroup(0.55, 0.70, 'Apr', false),
-                _barGroup(0.66, 0.58, 'May', false),
-                _barGroup(0.90, 0.74, 'Jun', true),
+                for (final f in flows)
+                  _barGroup(
+                    f.income / peak,
+                    f.expense / peak,
+                    monthAbbrev(f.month.month),
+                    f.month.year == now.year && f.month.month == now.month,
+                  ),
               ],
             ),
           ),
@@ -239,51 +274,74 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
     );
   }
 
-  Widget _spendingCard() {
+  Widget _spendingCard(LedgerState s) {
+    final now = DateTime.now();
+    final spend = s.categorySpendInRange(_spendStart(now), now);
+    final ranked = spend.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final total = ranked.fold<double>(0, (sum, e) => sum + e.value);
+    const topN = 5;
+    final top = ranked.take(topN).toList();
+    final other = ranked.skip(topN).fold<double>(0, (sum, e) => sum + e.value);
+
     return _statCardShell(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text('Spending by category', style: AppText.ui(15, FontWeight.w700)),
           const SizedBox(height: 15),
-          Row(
-            children: [
-              DonutChart(
-                segments: const [
-                  DonutSegment(34, Color(0xFFFF7A6B)),
-                  DonutSegment(22, Color(0xFFF0A23A)),
-                  DonutSegment(18, Color(0xFF5B8CFF)),
-                  DonutSegment(14, Color(0xFFB69BFF)),
-                  DonutSegment(12, Color(0xFF38BDF8)),
-                ],
-                center: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      'SPENT',
-                      style: AppText.ui(
-                        10,
-                        FontWeight.w400,
-                        color: AppColors.muted,
+          if (total <= 0)
+            Text(
+              'No spending in this period.',
+              style: AppText.ui(13, FontWeight.w400, color: AppColors.muted),
+            )
+          else
+            Row(
+              children: [
+                DonutChart(
+                  segments: [
+                    for (final e in top)
+                      DonutSegment(
+                        e.value,
+                        hexColor(s.categoryById(e.key).color),
                       ),
-                    ),
-                    Text('18.7k', style: AppText.mono(15, FontWeight.w600)),
+                    if (other > 0) DonutSegment(other, AppColors.muted),
                   ],
+                  center: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        'SPENT',
+                        style: AppText.ui(
+                          10,
+                          FontWeight.w400,
+                          color: AppColors.muted,
+                        ),
+                      ),
+                      Text(
+                        _compact(total),
+                        style: AppText.mono(15, FontWeight.w600),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(width: 18),
-              Expanded(
-                child: Column(
-                  children: [
-                    _legendRow(const Color(0xFFFF7A6B), 'Dining', '6,380'),
-                    _legendRow(const Color(0xFFF0A23A), 'Groceries', '4,120'),
-                    _legendRow(const Color(0xFF5B8CFF), 'Transport', '3,350'),
-                    _legendRow(const Color(0xFFB69BFF), 'Rent', '2,640'),
-                  ],
+                const SizedBox(width: 18),
+                Expanded(
+                  child: Column(
+                    children: [
+                      for (final e in top)
+                        _legendRow(
+                          hexColor(s.categoryById(e.key).color),
+                          s.categoryById(e.key).name,
+                          fmtAmount(e.value),
+                        ),
+                      if (other > 0)
+                        _legendRow(AppColors.muted, 'Other', fmtAmount(other)),
+                    ],
+                  ),
                 ),
-              ),
-            ],
-          ),
+              ],
+            ),
         ],
       ),
     );
@@ -375,7 +433,16 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
     );
   }
 
-  Widget _trendCard() {
+  Widget _trendCard(LedgerState s) {
+    final now = DateTime.now();
+    final change = s.netWorthChangeSinceLastMonth(now);
+    final trend = s.netWorthTrend(points: 12);
+    final up = (change ?? 0) >= 0;
+    double? pct;
+    if (change != null) {
+      final prev = s.netWorth - change;
+      if (prev > 0) pct = (change / prev) * 100;
+    }
     return _statCardShell(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -384,17 +451,30 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text('Net worth trend', style: AppText.ui(15, FontWeight.w700)),
-              Text(
-                '▲ 14% / 12M',
-                style: AppText.ui(12, FontWeight.w400, color: AppColors.brand),
-              ),
+              if (pct != null)
+                Text(
+                  '${up ? '▲' : '▼'} ${pct.abs().toStringAsFixed(1)}% / mo',
+                  style: AppText.ui(
+                    12,
+                    FontWeight.w400,
+                    color: up ? AppColors.brand : AppColors.expense,
+                  ),
+                ),
             ],
           ),
           const SizedBox(height: 12),
-          const AreaChart(
-            values: [50, 54, 52, 62, 60, 74, 80, 90, 88, 96, 102, 116],
-            color: AppColors.brand,
-          ),
+          if (trend.length >= 2)
+            AreaChart(values: trend, color: AppColors.brand)
+          else
+            Text(
+              'Your net-worth trend will appear here as you add transactions.',
+              style: AppText.ui(
+                13,
+                FontWeight.w400,
+                color: AppColors.muted,
+                height: 1.4,
+              ),
+            ),
         ],
       ),
     );

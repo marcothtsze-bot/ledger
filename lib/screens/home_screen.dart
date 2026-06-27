@@ -4,6 +4,7 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../charts/line_charts.dart';
 import '../core/money.dart';
+import '../core/statement.dart';
 import '../models/account.dart';
 import '../models/recurring.dart';
 import '../state/ledger_notifier.dart';
@@ -197,19 +198,55 @@ class HomeScreen extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 13),
-          Row(
-            children: [
+          _trend(s),
+        ],
+      ),
+    );
+  }
+
+  /// Real net-worth movement: the change since the end of last month plus a
+  /// sparkline reconstructed from actual transactions (all converted to HKD).
+  /// Before there's any prior-month history it says so honestly rather than
+  /// showing a fabricated climb.
+  Widget _trend(LedgerState s) {
+    final now = DateTime.now();
+    final change = s.netWorthChangeSinceLastMonth(now);
+    final trend = s.netWorthTrend();
+
+    final subtle = Colors.white.withValues(alpha: 0.8);
+    if (change == null) {
+      return Text(
+        'Tracking from this month',
+        style: AppText.ui(13, FontWeight.w400, color: subtle),
+      );
+    }
+
+    final base = s.netWorth - change;
+    final pct = base > 0 ? (change / base) * 100 : null;
+    final up = change >= 0;
+    final prevMonth = DateTime(
+      now.year,
+      now.month,
+      1,
+    ).subtract(const Duration(days: 1));
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            if (pct != null) ...[
               Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 11,
                   vertical: 4,
                 ),
                 decoration: BoxDecoration(
-                  color: AppColors.brand,
+                  color: up ? AppColors.brand : AppColors.expense,
                   borderRadius: BorderRadius.circular(AppRadii.pill),
                 ),
                 child: Text(
-                  '▲ 2.1%',
+                  '${up ? '▲' : '▼'} ${pct.abs().toStringAsFixed(1)}%',
                   style: AppText.mono(
                     13,
                     FontWeight.w700,
@@ -218,27 +255,23 @@ class HomeScreen extends ConsumerWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  '+HK\$9,840 since May',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppText.ui(
-                    13,
-                    FontWeight.w400,
-                    color: Colors.white.withValues(alpha: 0.8),
-                  ),
-                ),
-              ),
             ],
-          ),
+            Flexible(
+              child: Text(
+                '${up ? '+' : '−'}${hk(change.abs())} '
+                'since ${monthAbbrev(prevMonth.month)}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppText.ui(13, FontWeight.w400, color: subtle),
+              ),
+            ),
+          ],
+        ),
+        if (trend.length >= 2) ...[
           const SizedBox(height: 16),
-          const Sparkline(
-            values: [8, 13, 11, 23, 18, 29, 24, 35, 31],
-            color: AppColors.softGreen,
-          ),
+          Sparkline(values: trend, color: AppColors.softGreen),
         ],
-      ),
+      ],
     );
   }
 
