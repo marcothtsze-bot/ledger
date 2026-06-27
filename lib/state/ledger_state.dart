@@ -188,6 +188,7 @@ class LedgerState {
   final String payee;
   final String note; // draft transaction note
   final bool invalid;
+  final bool categoryTouched; // user manually picked the category → no auto-fill
   final String accountId;
   final String toAccountId;
   final String categoryId;
@@ -247,6 +248,7 @@ class LedgerState {
     required this.payee,
     required this.note,
     required this.invalid,
+    required this.categoryTouched,
     required this.accountId,
     required this.toAccountId,
     required this.categoryId,
@@ -302,6 +304,7 @@ class LedgerState {
     payee: '',
     note: '',
     invalid: false,
+    categoryTouched: false,
     accountId: 'citi',
     toAccountId: 'hsbc',
     categoryId: 'dining',
@@ -514,21 +517,34 @@ class LedgerState {
 
     for (final r in recurring) {
       if (!_recurringChargeable(r, now)) continue;
-      final nd = r.nextDate;
-      if (nd == null || nd.isBefore(start) || nd.isAfter(end)) continue;
       final acct = accountById(r.accountId ?? '');
       if (acct == null ||
           acct.isLiability ||
           (acct.group ?? 'cashbank') != 'cashbank') {
         continue; // card-billed / non-cash → handled via statement payment
       }
-      out.add(
-        CashObligation(
-          date: nd,
-          name: r.name,
-          amount: _toHkd(r.amount, acct.id),
-        ),
-      );
+      // Project every occurrence landing in the window (a weekly item can hit
+      // ~4×), bounded by an installment's remaining months and any end date.
+      final remaining = r.kind == RecurringKind.installment
+          ? (r.total ?? 0) - (r.paid ?? 0)
+          : null;
+      var d = r.nextDate;
+      var produced = 0;
+      while (d != null && !d.isAfter(end)) {
+        if (remaining != null && produced >= remaining) break;
+        if (r.endDate != null && d.isAfter(r.endDate!)) break;
+        if (!d.isBefore(start)) {
+          out.add(
+            CashObligation(
+              date: d,
+              name: r.name,
+              amount: _toHkd(r.amount, acct.id),
+            ),
+          );
+        }
+        produced++;
+        d = nextRecurringDate(d, r.freq);
+      }
     }
 
     for (final card in accounts.where((a) => a.isCreditCard)) {
@@ -859,6 +875,7 @@ class LedgerState {
       amount: '',
       payee: '',
       note: '',
+      categoryTouched: false,
       repeat: RepeatMode.off,
       recurEnd: null,
       invalid: false,
@@ -899,6 +916,7 @@ class LedgerState {
       amount: '',
       payee: '',
       note: '',
+      categoryTouched: false,
       repeat: RepeatMode.off,
       recurEnd: null,
       invalid: false,
@@ -979,6 +997,7 @@ class LedgerState {
       amount: '',
       payee: '',
       note: '',
+      categoryTouched: false,
       repeat: RepeatMode.off,
       invalid: false,
       editingTxnId: 0,
@@ -1013,6 +1032,8 @@ class LedgerState {
       expenseMonth: exp,
       amount: '',
       payee: '',
+      note: '',
+      categoryTouched: false,
       invalid: false,
       editingTxnId: 0,
       sheetOpen: false,
@@ -1617,6 +1638,7 @@ class LedgerState {
       counts[t.catId] = (counts[t.catId] ?? 0) + 1;
     }
     if (counts.isEmpty) return null;
+    // On a tie the earliest-seen category wins (Map keeps insertion order).
     return counts.entries.reduce((a, b) => b.value > a.value ? b : a).key;
   }
 
@@ -1651,6 +1673,7 @@ class LedgerState {
     String? payee,
     String? note,
     bool? invalid,
+    bool? categoryTouched,
     String? accountId,
     String? toAccountId,
     String? categoryId,
@@ -1704,6 +1727,7 @@ class LedgerState {
       payee: payee ?? this.payee,
       note: note ?? this.note,
       invalid: invalid ?? this.invalid,
+      categoryTouched: categoryTouched ?? this.categoryTouched,
       accountId: accountId ?? this.accountId,
       toAccountId: toAccountId ?? this.toAccountId,
       categoryId: categoryId ?? this.categoryId,

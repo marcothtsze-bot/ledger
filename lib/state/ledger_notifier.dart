@@ -67,6 +67,7 @@ class LedgerNotifier extends Notifier<LedgerState> {
     txnDate: DateTime.now(),
     recurEnd: null,
     note: '',
+    categoryTouched: false,
     picker: ActivePicker.none,
   );
   void closeSheet() => state = state.copyWith(
@@ -75,6 +76,7 @@ class LedgerNotifier extends Notifier<LedgerState> {
     amount: '',
     payee: '',
     note: '',
+    categoryTouched: false,
     repeat: RepeatMode.off,
     recurEnd: null,
     invalid: false,
@@ -99,6 +101,7 @@ class LedgerNotifier extends Notifier<LedgerState> {
       amount: _amountString(t.amount),
       payee: t.payee,
       note: t.note ?? '',
+      categoryTouched: true, // editing: keep the txn's category, no auto-fill
       categoryId: t.catId,
       accountId: t.acctId,
       toAccountId: t.toAcctId ?? state.toAccountId,
@@ -212,11 +215,12 @@ class LedgerNotifier extends Notifier<LedgerState> {
   void setTxnType(TxnType t) => state = state.copyWith(txnType: t);
   void press(String key) => state = state.pressKey(key);
 
-  /// Sets the payee and, when adding a new transaction, auto-fills the category
-  /// from that payee's history (a known payee preselects its usual category).
+  /// Sets the payee and, when adding a new transaction and the user hasn't
+  /// already picked a category, auto-fills the category from that payee's
+  /// history (a known payee preselects its usual category).
   void setPayee(String v) {
     var next = state.copyWith(payee: v);
-    if (next.editingTxnId == 0) {
+    if (next.editingTxnId == 0 && !next.categoryTouched) {
       final cat = next.suggestCategoryForPayee(v);
       if (cat != null) next = next.copyWith(categoryId: cat);
     }
@@ -264,8 +268,11 @@ class LedgerNotifier extends Notifier<LedgerState> {
   void pickAccount(String id) => state = state.picking == PickingSide.to
       ? state.copyWith(toAccountId: id, picker: ActivePicker.none)
       : state.copyWith(accountId: id, picker: ActivePicker.none);
-  void pickCategory(String id) =>
-      state = state.copyWith(categoryId: id, picker: ActivePicker.none);
+  void pickCategory(String id) => state = state.copyWith(
+    categoryId: id,
+    categoryTouched: true, // manual pick → don't let payee auto-fill override it
+    picker: ActivePicker.none,
+  );
   void pickDate(DateTime d) => state = state.pickDate(d);
   void setRepeat(RepeatMode r) => state = state.copyWith(repeat: r);
 

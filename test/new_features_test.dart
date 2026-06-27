@@ -1,7 +1,10 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ledger/data/in_memory_repository.dart';
 import 'package:ledger/models/enums.dart';
 import 'package:ledger/models/recurring.dart';
 import 'package:ledger/models/txn.dart';
+import 'package:ledger/state/ledger_notifier.dart';
 import 'package:ledger/state/ledger_state.dart';
 
 /// The four roadmap features: cash-runway forecast, Activity month flow,
@@ -63,6 +66,30 @@ void main() {
       expect(f.cashNow, s.spendableCash);
       expect(f.totalOut, 78 + 6420); // Netflix + citi statement
       expect(f.cashAfter, f.cashNow - 6498);
+    });
+
+    test('a weekly cash-paid item is counted every week in the window', () {
+      final weekly = base.copyWith(
+        recurring: [
+          Recurring(
+            id: 'w',
+            name: 'Gym',
+            amount: 50,
+            freq: 'Weekly',
+            next: 'x',
+            catId: 'health',
+            kind: RecurringKind.sub,
+            accountId: 'hsbc',
+            nextDate: DateTime(2026, 6, 22),
+          ),
+        ],
+      );
+      final gym = weekly
+          .cashForecast(now, days: 30)
+          .obligations
+          .where((o) => o.name == 'Gym')
+          .toList();
+      expect(gym.length, greaterThanOrEqualTo(4)); // ~5 weeks, not just 1
     });
   });
 
@@ -142,6 +169,41 @@ void main() {
     test('returns null for an unknown payee', () {
       expect(s.suggestCategoryForPayee('Nowhere'), isNull);
       expect(s.suggestCategoryForPayee(''), isNull);
+    });
+
+    test('auto-fills on payee, but never overrides a manual category pick',
+        () async {
+      final seed = base.copyWith(
+        transactions: [
+          tx(1, TxnType.expense, 50, 'Starbucks', 'coffee', 'hsbc',
+              DateTime(2026, 6, 1)),
+        ],
+      ).toSnapshot();
+      final container = ProviderContainer(
+        overrides: [
+          ledgerRepositoryProvider
+              .overrideWithValue(InMemoryLedgerRepository(seed)),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.read(ledgerProvider); // trigger build + async hydrate
+      for (var i = 0;
+          i < 5 && container.read(ledgerProvider).transactions.isEmpty;
+          i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      final n = container.read(ledgerProvider.notifier);
+
+      // Typing a known payee preselects its usual category.
+      n.openSheet();
+      n.setPayee('Starbucks');
+      expect(container.read(ledgerProvider).categoryId, 'coffee');
+
+      // But a manual pick is sticky — re-entering the payee won't clobber it.
+      n.openSheet();
+      n.pickCategory('groceries');
+      n.setPayee('Starbucks');
+      expect(container.read(ledgerProvider).categoryId, 'groceries');
     });
   });
 }
