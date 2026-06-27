@@ -200,15 +200,37 @@ class AccountDetailOverlay extends ConsumerWidget {
   /// Forward look at what recurring charges (subscriptions + installments) are
   /// already committed to this card's next statement, so the user can see the
   /// load before buying more. Hidden when nothing is committed.
+  /// The next statement's close date and payment-due date for card [a] as of
+  /// [today]. A charge made now lands on this statement (anything after the most
+  /// recent close rolls to the next one), so its due date is one cycle out.
+  (DateTime?, DateTime?) _nextStatementDates(Account a, DateTime today) {
+    final close = a.statementDay != null
+        ? nextOccurrence(a.statementDay!, today)
+        : null;
+    final due = (close != null && a.dueDay != null)
+        ? nextOccurrence(a.dueDay!, close)
+        : null;
+    return (close, due);
+  }
+
+  String _dayLabel(DateTime d) => '${monthAbbrev(d.month)} ${d.day}';
+
+  /// One-line "new charges land on the statement closing X, due Y" for a card —
+  /// makes clear that a charge made after the close is due a cycle later.
+  String _nextStatementLine(Account a, DateTime today) {
+    final (close, due) = _nextStatementDates(a, today);
+    if (close == null) return 'New charges bill your next statement';
+    final dueTxt = due != null ? ' · due ${_dayLabel(due)}' : '';
+    return 'New charges bill the statement closing ${_dayLabel(close)}$dueTxt';
+  }
+
   Widget _committedSection(LedgerState s, Account a, DateTime today) {
     final items = s.commitmentsForNextStatement(a.id, today);
     if (items.isEmpty) return const SizedBox.shrink();
     final committed = s.committedToNextStatement(a.id, today);
     final pending = pendingThisCycle(a.balance, a.statementBalance);
     final projected = pending + committed;
-    final closeLabel = a.statementDay != null
-        ? nextDueLabel(a.statementDay!, today)
-        : null;
+    final (close, due) = _nextStatementDates(a, today);
     return Column(
       children: [
         const SizedBox(height: 12),
@@ -272,10 +294,18 @@ class AccountDetailOverlay extends ConsumerWidget {
                 ],
               ),
               const SizedBox(height: 6),
+              if (close != null || due != null)
+                Text(
+                  [
+                    if (close != null) 'Closes ${_dayLabel(close)}',
+                    if (due != null) 'due ${_dayLabel(due)}',
+                  ].join(' · '),
+                  style: AppText.ui(11, FontWeight.w600, color: AppColors.muted),
+                ),
+              const SizedBox(height: 2),
               Text(
                 '${money(pending, a.currency)} already posted + '
-                '${money(committed, a.currency)} committed'
-                '${closeLabel != null ? ' · closes $closeLabel' : ''}',
+                '${money(committed, a.currency)} committed',
                 style: AppText.ui(11, FontWeight.w400, color: AppColors.muted),
               ),
             ],
@@ -405,7 +435,7 @@ class AccountDetailOverlay extends ConsumerWidget {
             if (a.statementDay != null) ...[
               const SizedBox(height: 10),
               Text(
-                'Next statement closes ${nextDueLabel(a.statementDay!, today)}',
+                _nextStatementLine(a, today),
                 style: AppText.ui(12, FontWeight.w400, color: AppColors.muted),
               ),
             ],
@@ -478,10 +508,10 @@ class AccountDetailOverlay extends ConsumerWidget {
               Text(hk(pending), style: AppText.mono(15, FontWeight.w600)),
             ],
           ),
-          if (a.statementDay != null && a.dueDay != null) ...[
+          if (a.statementDay != null) ...[
             const SizedBox(height: 10),
             Text(
-              'Closes ${ordinalDay(a.statementDay!)} each month · pay by ${ordinalDay(a.dueDay!)}',
+              _nextStatementLine(a, today),
               style: AppText.ui(12, FontWeight.w400, color: AppColors.muted),
             ),
           ],

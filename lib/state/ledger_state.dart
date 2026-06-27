@@ -80,17 +80,23 @@ int? _parseDay(String s) {
 /// its id; a later duplicate gets a fresh suffixed id. Transactions can't be
 /// disambiguated, so they stay with the first occurrence.
 List<Account> _accountsWithUniqueIds(List<Account> accounts) {
-  final seen = <String>{};
+  // Every account that already had a unique id keeps it — so a reassigned
+  // duplicate must dodge all the OTHER original ids too, not just the ones
+  // emitted so far (else it could steal a later account's real id).
+  final original = accounts.map((a) => a.id).toSet();
+  final used = <String>{};
   final out = <Account>[];
   for (final a in accounts) {
-    if (seen.add(a.id)) {
+    if (used.add(a.id)) {
       out.add(a);
     } else {
       var i = 2;
-      while (!seen.add('${a.id}-$i')) {
+      while (used.contains('${a.id}-$i') || original.contains('${a.id}-$i')) {
         i++;
       }
-      out.add(a.copyWith(id: '${a.id}-$i'));
+      final id = '${a.id}-$i';
+      used.add(id);
+      out.add(a.copyWith(id: id));
     }
   }
   return out;
@@ -795,7 +801,9 @@ class LedgerState {
         name: name,
         icon: newIcon.isEmpty ? null : newIcon,
         balance: newBal,
-        fxRate: newFxRate.isEmpty ? existing.fxRate : parseAmount(newFxRate),
+        fxRate: parseAmount(newFxRate) > 0
+            ? parseAmount(newFxRate)
+            : existing.fxRate,
         creditLimit: newLimit.isEmpty
             ? existing.creditLimit
             : parseAmount(newLimit),
@@ -857,7 +865,7 @@ class LedgerState {
       currency: newCurrency,
       fxRate: newCurrency.toUpperCase() == kBaseCurrency
           ? null
-          : (newFxRate.isEmpty ? null : parseAmount(newFxRate)),
+          : (parseAmount(newFxRate) > 0 ? parseAmount(newFxRate) : null),
       balance: balance,
       nature: isLiab ? AccountNature.liability : AccountNature.asset,
       group: group,
@@ -1136,10 +1144,31 @@ class LedgerState {
   }
 
   /// Subscriptions/recurring whose next-due date is on or before [today].
+  /// Whether recurring [r] should still generate a charge as of [asOf]: not a
+  /// finished installment, and not past its (subscription) end date.
+  bool _recurringChargeable(Recurring r, DateTime asOf) {
+    if (r.kind == RecurringKind.installment &&
+        (r.paid ?? 0) >= (r.total ?? 0)) {
+      return false;
+    }
+    final due = r.nextDate ?? asOf;
+    return r.endDate == null || !due.isAfter(r.endDate!);
+  }
+
+  /// Recurring items still worth surfacing as upcoming/payable as of [asOf]
+  /// — drops finished installments and ended subscriptions.
+  List<Recurring> upcomingRecurring(DateTime asOf) =>
+      recurring.where((r) => _recurringChargeable(r, asOf)).toList();
+
   List<Recurring> dueRecurring(DateTime today) {
     final t = DateTime(today.year, today.month, today.day);
     return recurring
-        .where((r) => r.nextDate != null && !r.nextDate!.isAfter(t))
+        .where(
+          (r) =>
+              r.nextDate != null &&
+              !r.nextDate!.isAfter(t) &&
+              _recurringChargeable(r, t),
+        )
         .toList();
   }
 
@@ -1161,6 +1190,7 @@ class LedgerState {
     if (!recurring.any((r) => r.id == id)) return this;
     final r = recurring.firstWhere((x) => x.id == id);
     if (accountById(fromAccountId) == null) return this;
+    if (!_recurringChargeable(r, DateTime.now())) return this;
 
     final catId = categories.any((c) => c.id == r.catId)
         ? r.catId
@@ -1216,6 +1246,10 @@ class LedgerState {
     if (r.kind == RecurringKind.installment &&
         (r.paid ?? 0) >= (r.total ?? 0)) {
       return copyWith(toast: 'Installment plan is fully paid');
+    }
+    if (r.endDate != null &&
+        (r.nextDate ?? DateTime.now()).isAfter(r.endDate!)) {
+      return copyWith(toast: '${r.name} has ended');
     }
     final catId = categories.any((c) => c.id == r.catId)
         ? r.catId

@@ -476,7 +476,7 @@ class HomeScreen extends ConsumerWidget {
   /// card tappable to pay or settle.
   Widget _upcomingRow(LedgerState s, LedgerNotifier n) {
     final today = DateTime.now();
-    final items = [...s.recurring]..sort((a, b) {
+    final items = [...s.upcomingRecurring(today)]..sort((a, b) {
       final ad = a.nextDate, bd = b.nextDate;
       if (ad == null && bd == null) return 0;
       if (ad == null) return 1;
