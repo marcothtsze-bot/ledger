@@ -37,10 +37,11 @@ TxnRowData txnRowData(LedgerState state, Txn t) {
   final a = state.accountById(t.acctId);
   final sign = t.type == TxnType.income ? '+' : '−';
   final foreign = t.foreign != null ? ' · ${t.foreign}' : '';
+  final note = (t.note != null && t.note!.isNotEmpty) ? ' · ${t.note}' : '';
   return TxnRowData(
     payee: t.payee,
     letter: (t.payee.isEmpty ? '?' : t.payee.substring(0, 1)).toUpperCase(),
-    sub: '${c.name} · ${a?.name ?? ''}$foreign',
+    sub: '${c.name} · ${a?.name ?? ''}$foreign$note',
     amountText: '$sign${fmtAmount(t.amount)}',
     date: compactDate(t.date),
     iconFg: hexColor(c.color),

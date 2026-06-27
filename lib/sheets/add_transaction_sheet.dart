@@ -32,16 +32,19 @@ class AddTransactionSheet extends ConsumerStatefulWidget {
 
 class _AddTransactionSheetState extends ConsumerState<AddTransactionSheet> {
   late final TextEditingController _payee;
+  late final TextEditingController _note;
 
   @override
   void initState() {
     super.initState();
     _payee = TextEditingController(text: ref.read(ledgerProvider).payee);
+    _note = TextEditingController(text: ref.read(ledgerProvider).note);
   }
 
   @override
   void dispose() {
     _payee.dispose();
+    _note.dispose();
     super.dispose();
   }
 
@@ -53,6 +56,9 @@ class _AddTransactionSheetState extends ConsumerState<AddTransactionSheet> {
     // Keep the payee field in sync when the draft resets after a save.
     ref.listen<String>(ledgerProvider.select((v) => v.payee), (_, next) {
       if (next.isEmpty && _payee.text.isNotEmpty) _payee.clear();
+    });
+    ref.listen<String>(ledgerProvider.select((v) => v.note), (_, next) {
+      if (next.isEmpty && _note.text.isNotEmpty) _note.clear();
     });
 
     // The design spec's full Add Transaction sheet is 768px tall; capping lower
@@ -229,7 +235,28 @@ class _AddTransactionSheetState extends ConsumerState<AddTransactionSheet> {
                               decoration: InputDecoration(
                                 isCollapsed: true,
                                 border: InputBorder.none,
-                                hintText: 'add note',
+                                hintText: 'who / what',
+                                hintStyle: AppText.ui(
+                                  14,
+                                  FontWeight.w600,
+                                  color: AppColors.muted,
+                                ),
+                              ),
+                            ),
+                          ),
+                          _metaRow(
+                            label: 'Note',
+                            compact: true,
+                            trailing: TextField(
+                              controller: _note,
+                              onChanged: n.setNote,
+                              textAlign: TextAlign.right,
+                              cursorColor: AppColors.brand,
+                              style: AppText.ui(14, FontWeight.w600),
+                              decoration: InputDecoration(
+                                isCollapsed: true,
+                                border: InputBorder.none,
+                                hintText: 'optional',
                                 hintStyle: AppText.ui(
                                   14,
                                   FontWeight.w600,

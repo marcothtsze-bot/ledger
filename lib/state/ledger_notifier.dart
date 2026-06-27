@@ -66,6 +66,7 @@ class LedgerNotifier extends Notifier<LedgerState> {
     editingTxnId: 0,
     txnDate: DateTime.now(),
     recurEnd: null,
+    note: '',
     picker: ActivePicker.none,
   );
   void closeSheet() => state = state.copyWith(
@@ -73,6 +74,7 @@ class LedgerNotifier extends Notifier<LedgerState> {
     editingTxnId: 0,
     amount: '',
     payee: '',
+    note: '',
     repeat: RepeatMode.off,
     recurEnd: null,
     invalid: false,
@@ -96,6 +98,7 @@ class LedgerNotifier extends Notifier<LedgerState> {
       txnType: t.type,
       amount: _amountString(t.amount),
       payee: t.payee,
+      note: t.note ?? '',
       categoryId: t.catId,
       accountId: t.acctId,
       toAccountId: t.toAcctId ?? state.toAccountId,
@@ -208,7 +211,27 @@ class LedgerNotifier extends Notifier<LedgerState> {
   // ---- Add Transaction draft ----
   void setTxnType(TxnType t) => state = state.copyWith(txnType: t);
   void press(String key) => state = state.pressKey(key);
-  void setPayee(String v) => state = state.copyWith(payee: v);
+
+  /// Sets the payee and, when adding a new transaction, auto-fills the category
+  /// from that payee's history (a known payee preselects its usual category).
+  void setPayee(String v) {
+    var next = state.copyWith(payee: v);
+    if (next.editingTxnId == 0) {
+      final cat = next.suggestCategoryForPayee(v);
+      if (cat != null) next = next.copyWith(categoryId: cat);
+    }
+    state = next;
+  }
+
+  void setNote(String v) => state = state.copyWith(note: v);
+
+  // Activity month navigation.
+  void prevMonth() => state = state.copyWith(
+    filterMonth: DateTime(state.filterMonth.year, state.filterMonth.month - 1),
+  );
+  void nextMonth() => state = state.copyWith(
+    filterMonth: DateTime(state.filterMonth.year, state.filterMonth.month + 1),
+  );
   void incMonths() => state = state.copyWith(
     installMonths: state.installMonths < 36 ? state.installMonths + 1 : 36,
   );

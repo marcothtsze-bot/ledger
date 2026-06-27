@@ -44,6 +44,7 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
           onChanged: (i) => setState(() => _period = i),
         ),
         const SizedBox(height: 20),
+        _cashForecastCard(s),
         _cashFlowCard(s),
         const SizedBox(height: 16),
         _spendingCard(s),
@@ -164,6 +165,99 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
       ],
     );
   }
+
+  /// Forward cash projection: spendable cash now, what's left after the next 30
+  /// days of committed bills, and the bills themselves. Hidden when nothing is
+  /// scheduled. Reuses the recurring + statement-cycle engine.
+  Widget _cashForecastCard(LedgerState s) {
+    final f = s.cashForecast(DateTime.now(), days: 30);
+    if (f.obligations.isEmpty) return const SizedBox.shrink();
+    final after = f.cashAfter;
+    final tight = after < 0;
+    return Column(
+      children: [
+        _statCardShell(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('Cash forecast', style: AppText.ui(15, FontWeight.w700)),
+                  Text(
+                    'next 30 days',
+                    style: AppText.ui(12, FontWeight.w400, color: AppColors.muted),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(child: _miniStat('Cash now', hk(f.cashNow), AppColors.text)),
+                  Expanded(
+                    child: _miniStat(
+                      'After bills',
+                      hk(after),
+                      tight ? AppColors.expense : AppColors.brand,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'UPCOMING BILLS',
+                style: AppText.eyebrow().copyWith(fontSize: 11),
+              ),
+              const SizedBox(height: 10),
+              for (var i = 0; i < f.obligations.length; i++) ...[
+                if (i > 0) const SizedBox(height: 9),
+                _obligationRow(f.obligations[i]),
+              ],
+              if (tight) ...[
+                const SizedBox(height: 12),
+                Text(
+                  '⚠ Committed bills exceed your spendable cash.',
+                  style: AppText.ui(12, FontWeight.w600, color: AppColors.expense),
+                ),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+      ],
+    );
+  }
+
+  Widget _miniStat(String label, String value, Color color) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(label, style: AppText.ui(11, FontWeight.w400, color: AppColors.muted)),
+      const SizedBox(height: 3),
+      Text(value, style: AppText.mono(18, FontWeight.w600, color: color)),
+    ],
+  );
+
+  Widget _obligationRow(CashObligation o) => Row(
+    children: [
+      SizedBox(
+        width: 48,
+        child: Text(
+          '${monthAbbrev(o.date.month)} ${o.date.day}',
+          style: AppText.muted12,
+        ),
+      ),
+      const SizedBox(width: 8),
+      Expanded(
+        child: Text(
+          o.name,
+          style: AppText.ui(14, FontWeight.w600),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+      Text(hk(o.amount), style: AppText.mono(14, FontWeight.w600)),
+    ],
+  );
 
   /// Number of monthly bars the cash-flow chart shows for the active period.
   int _flowMonths(DateTime now) => switch (_period) {

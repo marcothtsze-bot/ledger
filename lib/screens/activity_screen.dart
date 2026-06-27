@@ -38,6 +38,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
   Widget build(BuildContext context) {
     final s = ref.watch(ledgerProvider);
     final n = ref.read(ledgerProvider.notifier);
+    final flow = s.monthFlow(s.filterMonth);
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 50, 20, kBottomNavInset),
@@ -111,18 +112,30 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
           ),
         ),
         if (s.filterOpen) _filterPanel(s, n),
-        const SizedBox(height: 16),
-        Row(
-          children: [
-            _summary('▲ In · June', hk(s.incomeMonth), AppColors.softGreen2),
-            const SizedBox(width: 10),
-            _summary(
-              '▼ Out · June',
-              hk(s.expenseMonth),
-              AppColors.expenseMuted,
-            ),
-          ],
-        ),
+        // Month navigator + that month's in/out — hidden while searching, since
+        // search spans every month.
+        if (s.search.trim().isEmpty) ...[
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _navArrow(Symbols.chevron_left_rounded, n.prevMonth),
+              Text(
+                '${monthAbbrev(s.filterMonth.month)} ${s.filterMonth.year}',
+                style: AppText.ui(15, FontWeight.w700),
+              ),
+              _navArrow(Symbols.chevron_right_rounded, n.nextMonth),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              _summary('▲ In', hk(flow.income), AppColors.softGreen2),
+              const SizedBox(width: 10),
+              _summary('▼ Out', hk(flow.expense), AppColors.expenseMuted),
+            ],
+          ),
+        ],
         const SizedBox(height: 20),
         if (s.activityGroups.isEmpty)
           _emptyState()
@@ -235,6 +248,22 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
       ),
     );
   }
+
+  Widget _navArrow(IconData icon, VoidCallback onTap) => GestureDetector(
+    behavior: HitTestBehavior.opaque,
+    onTap: onTap,
+    child: Container(
+      width: 34,
+      height: 34,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: AppColors.card,
+        shape: BoxShape.circle,
+        border: Border.all(color: AppColors.hairline),
+      ),
+      child: Icon(icon, size: 20, color: AppColors.muted),
+    ),
+  );
 
   Widget _summary(String label, String value, Color labelColor) {
     return Expanded(

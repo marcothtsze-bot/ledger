@@ -80,6 +80,32 @@ class StatementCharge {
   double get amount => source.amount * count;
 }
 
+/// A scheduled cash outflow within the forecast window — a recurring item paid
+/// from a cash account, or a credit-card statement payment due.
+class CashObligation {
+  final DateTime date;
+  final String name;
+  final double amount; // base currency, positive = money leaving cash
+  const CashObligation({
+    required this.date,
+    required this.name,
+    required this.amount,
+  });
+}
+
+/// Forward cash projection: spendable cash now and the committed obligations
+/// ahead, so the user can see what's safe to spend before the bills land.
+class CashForecast {
+  final double cashNow; // base currency
+  final List<CashObligation> obligations; // sorted by date
+  const CashForecast({required this.cashNow, required this.obligations});
+
+  double get totalOut => obligations.fold(0, (s, o) => s + o.amount);
+
+  /// Cash left once every committed obligation in the window has been paid.
+  double get cashAfter => cashNow - totalOut;
+}
+
 const _unknownCategory = Category(
   id: '?',
   name: '—',
@@ -102,6 +128,12 @@ const _accountPalette = [
 int? _parseDay(String s) {
   final n = int.tryParse(s.trim());
   return n?.clamp(1, 31).toInt();
+}
+
+/// The first day of the current calendar month (Activity's default scope).
+DateTime _firstOfThisMonth() {
+  final n = DateTime.now();
+  return DateTime(n.year, n.month);
 }
 
 /// Heals duplicate account ids left by the old `a{count}` id scheme so every
@@ -154,6 +186,7 @@ class LedgerState {
   final TxnType txnType;
   final String amount; // keypad-driven string, e.g. '12.50'
   final String payee;
+  final String note; // draft transaction note
   final bool invalid;
   final String accountId;
   final String toAccountId;
@@ -192,6 +225,7 @@ class LedgerState {
   final String filterAccountId; // '' = all accounts
   final String filterCategoryId; // '' = all categories
   final String filterType; // '' = all, else TxnType.name
+  final DateTime filterMonth; // Activity month being viewed (1st of the month)
   final bool filterOpen; // Activity filter panel visibility
   final String toast; // '' when nothing showing
 
@@ -211,6 +245,7 @@ class LedgerState {
     required this.txnType,
     required this.amount,
     required this.payee,
+    required this.note,
     required this.invalid,
     required this.accountId,
     required this.toAccountId,
@@ -243,6 +278,7 @@ class LedgerState {
     required this.filterAccountId,
     required this.filterCategoryId,
     required this.filterType,
+    required this.filterMonth,
     required this.filterOpen,
     required this.toast,
   });
@@ -264,6 +300,7 @@ class LedgerState {
     txnType: TxnType.expense,
     amount: '',
     payee: '',
+    note: '',
     invalid: false,
     accountId: 'citi',
     toAccountId: 'hsbc',
@@ -295,6 +332,7 @@ class LedgerState {
     filterAccountId: '',
     filterCategoryId: '',
     filterType: '',
+    filterMonth: _firstOfThisMonth(),
     filterOpen: false,
     toast: '',
   );
@@ -458,6 +496,59 @@ class LedgerState {
         : a.balance.abs() + installmentCommitmentRemaining(cardId);
   }
 
+  /// Spendable cash right now (base currency): the balance of every cash/bank
+  /// asset account, converted to the base currency.
+  double get spendableCash => accounts
+      .where((a) => !a.isLiability && (a.group ?? 'cashbank') == 'cashbank')
+      .fold(0, (sum, a) => sum + a.balanceHkd);
+
+  /// Forward cash projection over the next [days]: spendable cash now and the
+  /// committed obligations that will draw it down — recurring items paid from a
+  /// cash account, plus each credit card's current statement payment due.
+  /// Card-billed recurring aren't counted directly (their cash hit is the card
+  /// statement payment). Reuses the recurring + statement-cycle infrastructure.
+  CashForecast cashForecast(DateTime now, {int days = 30}) {
+    final start = DateTime(now.year, now.month, now.day);
+    final end = start.add(Duration(days: days));
+    final out = <CashObligation>[];
+
+    for (final r in recurring) {
+      if (!_recurringChargeable(r, now)) continue;
+      final nd = r.nextDate;
+      if (nd == null || nd.isBefore(start) || nd.isAfter(end)) continue;
+      final acct = accountById(r.accountId ?? '');
+      if (acct == null ||
+          acct.isLiability ||
+          (acct.group ?? 'cashbank') != 'cashbank') {
+        continue; // card-billed / non-cash → handled via statement payment
+      }
+      out.add(
+        CashObligation(
+          date: nd,
+          name: r.name,
+          amount: _toHkd(r.amount, acct.id),
+        ),
+      );
+    }
+
+    for (final card in accounts.where((a) => a.isCreditCard)) {
+      final stmt = card.statementBalance ?? 0;
+      if (stmt <= 0 || card.dueDay == null) continue;
+      final due = nextOccurrence(card.dueDay!, start);
+      if (due.isAfter(end)) continue;
+      out.add(
+        CashObligation(
+          date: due,
+          name: '${card.name} statement',
+          amount: _toHkd(stmt, card.id),
+        ),
+      );
+    }
+
+    out.sort((a, b) => a.date.compareTo(b.date));
+    return CashForecast(cashNow: spendableCash, obligations: out);
+  }
+
   /// Projected upcoming statements for credit card [cardId] (skipping any with
   /// no committed charges), each listing the installments + subscriptions that
   /// land on it. By default the horizon stretches to cover the longest
@@ -616,6 +707,12 @@ class LedgerState {
   List<ActivityGroup> get activityGroups {
     final q = search.trim().toLowerCase();
     final filtered = transactions.where((t) {
+      // Scope to the month being viewed — unless searching, which spans all.
+      if (q.isEmpty &&
+          (t.date.year != filterMonth.year ||
+              t.date.month != filterMonth.month)) {
+        return false;
+      }
       if (filterAccountId.isNotEmpty &&
           t.acctId != filterAccountId &&
           t.toAcctId != filterAccountId) {
@@ -627,6 +724,7 @@ class LedgerState {
       if (filterType.isNotEmpty && t.type.name != filterType) return false;
       if (q.isEmpty) return true;
       return t.payee.toLowerCase().contains(q) ||
+          (t.note?.toLowerCase().contains(q) ?? false) ||
           categoryById(t.catId).name.toLowerCase().contains(q);
     }).toList();
 
@@ -707,6 +805,7 @@ class LedgerState {
           ? 'Installment 1 of $installMonths'
           : null,
       toAcctId: txnType == TxnType.transfer ? toAccountId : null,
+      note: note.trim().isEmpty ? null : note.trim(),
     );
 
     final newAccounts = accounts.map((a) {
@@ -759,6 +858,7 @@ class LedgerState {
       recurring: newRecurring,
       amount: '',
       payee: '',
+      note: '',
       repeat: RepeatMode.off,
       recurEnd: null,
       invalid: false,
@@ -798,6 +898,7 @@ class LedgerState {
       recurring: [sched, ...recurring],
       amount: '',
       payee: '',
+      note: '',
       repeat: RepeatMode.off,
       recurEnd: null,
       invalid: false,
@@ -840,6 +941,7 @@ class LedgerState {
       date: txnDate,
       foreign: old.foreign,
       toAcctId: txnType == TxnType.transfer ? toAccountId : null,
+      note: note.trim().isEmpty ? null : note.trim(),
     );
 
     final newAccounts = accounts.map((a) {
@@ -876,6 +978,7 @@ class LedgerState {
       expenseMonth: exp,
       amount: '',
       payee: '',
+      note: '',
       repeat: RepeatMode.off,
       invalid: false,
       editingTxnId: 0,
@@ -1485,6 +1588,38 @@ class LedgerState {
     return out;
   }
 
+  /// Income and expense totals (base currency) for the calendar month of
+  /// [month] — drives the Activity month header as you navigate months.
+  ({double income, double expense}) monthFlow(DateTime month) {
+    var inc = 0.0, exp = 0.0;
+    for (final t in transactions) {
+      if (t.type == TxnType.transfer) continue;
+      if (t.date.year != month.year || t.date.month != month.month) continue;
+      final v = _toHkd(t.amount, t.acctId);
+      if (t.type == TxnType.income) {
+        inc += v;
+      } else {
+        exp += v;
+      }
+    }
+    return (income: inc, expense: exp);
+  }
+
+  /// The category most often used for transactions whose payee matches [payee]
+  /// (case-insensitive exact match), or null when the payee has no history —
+  /// used to auto-fill the category when a known payee is entered.
+  String? suggestCategoryForPayee(String payee) {
+    final p = payee.trim().toLowerCase();
+    if (p.isEmpty) return null;
+    final counts = <String, int>{};
+    for (final t in transactions) {
+      if (t.payee.trim().toLowerCase() != p) continue;
+      counts[t.catId] = (counts[t.catId] ?? 0) + 1;
+    }
+    if (counts.isEmpty) return null;
+    return counts.entries.reduce((a, b) => b.value > a.value ? b : a).key;
+  }
+
   /// Sets, or clears when [amount] <= 0, the monthly budget for [categoryId].
   LedgerState setCategoryBudget(String categoryId, double amount) {
     final next = Map<String, double>.from(budgets);
@@ -1514,6 +1649,7 @@ class LedgerState {
     TxnType? txnType,
     String? amount,
     String? payee,
+    String? note,
     bool? invalid,
     String? accountId,
     String? toAccountId,
@@ -1546,6 +1682,7 @@ class LedgerState {
     String? filterAccountId,
     String? filterCategoryId,
     String? filterType,
+    DateTime? filterMonth,
     bool? filterOpen,
     String? toast,
   }) {
@@ -1565,6 +1702,7 @@ class LedgerState {
       txnType: txnType ?? this.txnType,
       amount: amount ?? this.amount,
       payee: payee ?? this.payee,
+      note: note ?? this.note,
       invalid: invalid ?? this.invalid,
       accountId: accountId ?? this.accountId,
       toAccountId: toAccountId ?? this.toAccountId,
@@ -1599,6 +1737,7 @@ class LedgerState {
       filterAccountId: filterAccountId ?? this.filterAccountId,
       filterCategoryId: filterCategoryId ?? this.filterCategoryId,
       filterType: filterType ?? this.filterType,
+      filterMonth: filterMonth ?? this.filterMonth,
       filterOpen: filterOpen ?? this.filterOpen,
       toast: toast ?? this.toast,
     );

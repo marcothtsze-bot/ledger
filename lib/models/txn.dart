@@ -16,6 +16,7 @@ class Txn {
   final String? toAcctId; // transfer destination account (transfers only)
   final bool statementBilled; // charged onto a credit-card statement (installment
   // / subscription billing) — so edit/delete can roll the statement back
+  final String? note; // free-text user note (separate from payee/foreign)
 
   const Txn({
     required this.id,
@@ -28,6 +29,7 @@ class Txn {
     this.foreign,
     this.toAcctId,
     this.statementBilled = false,
+    this.note,
   });
 
   Txn copyWith({
@@ -40,6 +42,7 @@ class Txn {
     String? foreign,
     String? toAcctId,
     bool? statementBilled,
+    String? note,
   }) {
     return Txn(
       id: id,
@@ -52,6 +55,7 @@ class Txn {
       foreign: foreign ?? this.foreign,
       toAcctId: toAcctId ?? this.toAcctId,
       statementBilled: statementBilled ?? this.statementBilled,
+      note: note ?? this.note,
     );
   }
 
@@ -68,6 +72,7 @@ class Txn {
     'foreign': foreign,
     'toAcctId': toAcctId,
     'statementBilled': statementBilled ? 1 : 0,
+    'note': note,
   };
 
   factory Txn.fromMap(Map<String, Object?> m) => Txn(
@@ -81,5 +86,6 @@ class Txn {
     foreign: m['foreign'] as String?,
     toAcctId: m['toAcctId'] as String?,
     statementBilled: ((m['statementBilled'] as num?)?.toInt() ?? 0) == 1,
+    note: m['note'] as String?,
   );
 }
