@@ -440,32 +440,39 @@ class LedgerState {
         (sum, r) => sum + r.amount * chargesBeforeNextClose(r, cardId, now),
       );
 
-  /// Projected upcoming statements for credit card [cardId] over the next
-  /// [cycles] statement closes (skipping any with no committed charges), each
-  /// listing the installments + subscriptions that land on it. The whole
-  /// committed runway, so the user sees future card charges before they hit.
+  /// Projected upcoming statements for credit card [cardId] (skipping any with
+  /// no committed charges), each listing the installments + subscriptions that
+  /// land on it. By default the horizon stretches to cover the longest
+  /// remaining installment run (6–18 statements) so a whole plan is visible end
+  /// to end; pass [cycles] to fix it. The committed runway, so the user sees
+  /// future card charges before they hit.
   List<UpcomingStatement> upcomingStatements(
     String cardId,
     DateTime now, {
-    int cycles = 6,
+    int? cycles,
   }) {
     final card = accountById(cardId);
     if (card == null || !card.isCreditCard || card.statementDay == null) {
       return const [];
     }
+    final recs = recurring
+        .where((r) => r.accountId == cardId && _recurringChargeable(r, now))
+        .toList();
+    final longestRun = recs
+        .where((r) => r.kind == RecurringKind.installment)
+        .map((r) => (r.total ?? 0) - (r.paid ?? 0))
+        .fold<int>(0, (m, n) => n > m ? n : m);
+    final horizon = cycles ?? longestRun.clamp(6, 18);
     final closes = <DateTime>[];
     var c = nextOccurrence(card.statementDay!, now);
-    for (var i = 0; i < cycles; i++) {
+    for (var i = 0; i < horizon; i++) {
       closes.add(c);
       c = nextOccurrence(card.statementDay!, c.add(const Duration(days: 1)));
     }
     final last = closes.last;
-    final recs = recurring
-        .where((r) => r.accountId == cardId && _recurringChargeable(r, now))
-        .toList();
     // For each recurring, project its charge dates forward and bin each onto the
     // first statement that closes on or after it.
-    final counts = {for (final r in recs) r.id: List.filled(cycles, 0)};
+    final counts = {for (final r in recs) r.id: List.filled(horizon, 0)};
     for (final r in recs) {
       var d = r.nextDate;
       if (d == null) continue;
@@ -483,7 +490,7 @@ class LedgerState {
       }
     }
     final out = <UpcomingStatement>[];
-    for (var i = 0; i < cycles; i++) {
+    for (var i = 0; i < horizon; i++) {
       final charges = [
         for (final r in recs)
           if (counts[r.id]![i] > 0)
