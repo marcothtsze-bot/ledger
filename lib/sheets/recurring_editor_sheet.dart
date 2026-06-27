@@ -35,7 +35,10 @@ class _RecurringEditorSheetState extends ConsumerState<RecurringEditorSheet> {
   late String _accountId;
   late DateTime _nextDate;
   late final bool _isInstallment;
+  DateTime? _startDate;
+  DateTime? _endDate;
   bool _showCalendar = false;
+  bool _showEndCalendar = false;
   bool _invalid = false;
   bool _confirming = false;
 
@@ -54,6 +57,8 @@ class _RecurringEditorSheetState extends ConsumerState<RecurringEditorSheet> {
     _accountId = r?.accountId ??
         (s.accounts.isNotEmpty ? s.accounts.first.id : '');
     _nextDate = r?.nextDate ?? DateTime.now();
+    _startDate = r?.startDate;
+    _endDate = r?.endDate;
   }
 
   static String _fmt(double v) =>
@@ -203,6 +208,74 @@ class _RecurringEditorSheetState extends ConsumerState<RecurringEditorSheet> {
                                 }),
                               ),
                             ],
+                            if (!_isInstallment) ...[
+                              const SizedBox(height: 16),
+                              _label('Ends'),
+                              const SizedBox(height: 7),
+                              GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () => setState(
+                                    () => _showEndCalendar = !_showEndCalendar),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 15, vertical: 13),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.card,
+                                    borderRadius:
+                                        BorderRadius.circular(AppRadii.field),
+                                    border:
+                                        Border.all(color: AppColors.hairline),
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Text(
+                                        _endDate == null
+                                            ? 'Ongoing'
+                                            : compactDate(_endDate!),
+                                        style: AppText.mono(15, FontWeight.w500),
+                                      ),
+                                      Text(
+                                        _showEndCalendar ? 'Done' : 'Change',
+                                        style: AppText.ui(13, FontWeight.w600,
+                                            color: AppColors.brand),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              if (_showEndCalendar) ...[
+                                const SizedBox(height: 10),
+                                GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onTap: () => setState(() {
+                                    _endDate = null;
+                                    _showEndCalendar = false;
+                                  }),
+                                  child: Text(
+                                    'Set to ongoing (no end date)',
+                                    style: AppText.ui(13, FontWeight.w600,
+                                        color: AppColors.muted),
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+                                MonthCalendar(
+                                  selected: _endDate ?? _nextDate,
+                                  onPick: (d) => setState(() {
+                                    _endDate = d;
+                                    _showEndCalendar = false;
+                                  }),
+                                ),
+                              ],
+                              if (_startDate != null) ...[
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Started ${compactDate(_startDate!)}',
+                                  style: AppText.muted12,
+                                ),
+                              ],
+                            ],
                             const SizedBox(height: 22),
                             PrimaryButton(
                               label: 'Save changes',
@@ -272,6 +345,7 @@ class _RecurringEditorSheetState extends ConsumerState<RecurringEditorSheet> {
       color: _color,
       accountId: _accountId,
       nextDate: _nextDate,
+      endDate: _endDate,
     );
   }
 

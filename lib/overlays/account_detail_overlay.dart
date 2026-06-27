@@ -6,7 +6,10 @@ import '../charts/donut_chart.dart';
 import '../core/money.dart';
 import '../core/statement.dart';
 import '../models/account.dart';
+import '../models/enums.dart';
+import '../models/recurring.dart';
 import '../state/ledger_notifier.dart';
+import '../state/ledger_state.dart';
 import '../theme/tokens.dart';
 import '../view/txn_view.dart';
 import '../widgets/enter_animations.dart';
@@ -174,6 +177,7 @@ class AccountDetailOverlay extends ConsumerWidget {
                 onEdit: () => n.openEditAccount(a.id),
                 onPay: () => n.openPayStatement(a.id),
               ),
+              _committedSection(s, a, today),
             ],
             const SizedBox(height: 22),
             const EyebrowLabel('Recent in this account'),
@@ -190,6 +194,117 @@ class AccountDetailOverlay extends ConsumerWidget {
           ],
         ),
       ),
+    );
+  }
+
+  /// Forward look at what recurring charges (subscriptions + installments) are
+  /// already committed to this card's next statement, so the user can see the
+  /// load before buying more. Hidden when nothing is committed.
+  Widget _committedSection(LedgerState s, Account a, DateTime today) {
+    final items = s.commitmentsForNextStatement(a.id, today);
+    if (items.isEmpty) return const SizedBox.shrink();
+    final committed = s.committedToNextStatement(a.id, today);
+    final pending = pendingThisCycle(a.balance, a.statementBalance);
+    final projected = pending + committed;
+    final closeLabel = a.statementDay != null
+        ? nextDueLabel(a.statementDay!, today)
+        : null;
+    return Column(
+      children: [
+        const SizedBox(height: 12),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: AppColors.card,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: AppColors.hairline),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'COMMITTED TO NEXT STATEMENT',
+                    style: AppText.eyebrow().copyWith(fontSize: 11),
+                  ),
+                  Text(
+                    money(committed, a.currency),
+                    style: AppText.mono(
+                      15,
+                      FontWeight.w700,
+                      color: AppColors.amber,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Subscriptions & installments already booked to this card.',
+                style: AppText.ui(
+                  12,
+                  FontWeight.w400,
+                  color: AppColors.muted,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 13),
+              for (var i = 0; i < items.length; i++) ...[
+                if (i > 0) const SizedBox(height: 9),
+                _commitmentRow(items[i], a.currency),
+              ],
+              const SizedBox(height: 13),
+              Container(height: 1, color: AppColors.hairline),
+              const SizedBox(height: 13),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Projected next statement',
+                    style: AppText.ui(13, FontWeight.w600),
+                  ),
+                  Text(
+                    money(projected, a.currency),
+                    style: AppText.mono(16, FontWeight.w700),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                '${money(pending, a.currency)} already posted + '
+                '${money(committed, a.currency)} committed'
+                '${closeLabel != null ? ' · closes $closeLabel' : ''}',
+                style: AppText.ui(11, FontWeight.w400, color: AppColors.muted),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _commitmentRow(Recurring r, String currency) {
+    final isInstallment = r.kind == RecurringKind.installment;
+    final tag = isInstallment
+        ? 'Installment ${(r.paid ?? 0) + 1} of ${r.total ?? 0}'
+        : 'Subscription';
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(r.name, style: AppText.ui(14, FontWeight.w600)),
+              const SizedBox(height: 1),
+              Text(tag, style: AppText.muted12),
+            ],
+          ),
+        ),
+        Text(money(r.amount, currency), style: AppText.mono(14, FontWeight.w600)),
+      ],
     );
   }
 

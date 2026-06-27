@@ -349,6 +349,38 @@ class LedgerState {
     return sum + _toHkd(monthly, r.accountId ?? '');
   });
 
+  /// Card-billed recurring items (subscriptions + still-running installments)
+  /// whose next charge lands on or before [cardId]'s next statement close — what
+  /// is already committed to the upcoming statement. Lets you see card charges
+  /// coming before they hit, so you don't over-spend. Ended subscriptions
+  /// (past their [Recurring.endDate]) and finished installments drop off.
+  List<Recurring> commitmentsForNextStatement(String cardId, DateTime now) {
+    final card = accountById(cardId);
+    if (card == null || !card.isCreditCard) return const [];
+    final close = card.statementDay != null
+        ? nextOccurrence(card.statementDay!, now)
+        : DateTime(now.year, now.month + 1, now.day);
+    return recurring.where((r) {
+      if (r.accountId != cardId) return false;
+      final nd = r.nextDate;
+      if (nd == null || nd.isAfter(close)) return false;
+      if (r.kind == RecurringKind.installment &&
+          (r.paid ?? 0) >= (r.total ?? 0)) {
+        return false;
+      }
+      if (r.endDate != null && nd.isAfter(r.endDate!)) return false;
+      return true;
+    }).toList();
+  }
+
+  /// Total amount (in the card's own currency) already committed to [cardId]'s
+  /// next statement from recurring charges.
+  double committedToNextStatement(String cardId, DateTime now) =>
+      commitmentsForNextStatement(
+        cardId,
+        now,
+      ).fold(0, (sum, r) => sum + r.amount);
+
   /// Net-worth delta (base currency) a single transaction contributes: income
   /// lifts net worth, expense lowers it, a transfer nets to zero unless its two
   /// accounts convert at different rates.
@@ -577,6 +609,7 @@ class LedgerState {
           color: cat.color,
           accountId: accountId,
           nextDate: nd,
+          startDate: DateTime(txnDate.year, txnDate.month, txnDate.day),
         ),
         ...recurring,
       ];
@@ -621,6 +654,7 @@ class LedgerState {
       color: cat.color,
       accountId: accountId,
       nextDate: due,
+      startDate: due,
     );
     return copyWith(
       recurring: [sched, ...recurring],
@@ -1066,6 +1100,8 @@ class LedgerState {
     String? accountId,
     DateTime? nextDate,
     String? catId,
+    DateTime? startDate,
+    Object? endDate = kKeepEndDate,
   }) {
     if (!recurring.any((r) => r.id == id)) return this;
     return copyWith(
@@ -1080,6 +1116,8 @@ class LedgerState {
                     accountId: accountId,
                     nextDate: nextDate,
                     catId: catId,
+                    startDate: startDate,
+                    endDate: endDate,
                   )
                 : r,
           )

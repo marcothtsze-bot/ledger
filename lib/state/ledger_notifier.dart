@@ -335,6 +335,7 @@ class LedgerNotifier extends Notifier<LedgerState> {
     required String color,
     required String accountId,
     required DateTime nextDate,
+    DateTime? endDate,
   }) {
     state = state
         .editRecurring(
@@ -345,6 +346,7 @@ class LedgerNotifier extends Notifier<LedgerState> {
           color: color,
           accountId: accountId,
           nextDate: nextDate,
+          endDate: endDate,
         )
         .copyWith(recurringEditorId: '');
     if (state.toast.isNotEmpty) {

@@ -17,7 +17,7 @@ class SqliteLedgerRepository implements LedgerRepository {
 
   SqliteLedgerRepository(this.db);
 
-  static const int schemaVersion = 9;
+  static const int schemaVersion = 10;
 
   /// Creates the tables. Pass this as `onCreate` when opening the database.
   static Future<void> createSchema(Database db, int version) async {
@@ -39,7 +39,8 @@ class SqliteLedgerRepository implements LedgerRepository {
       CREATE TABLE recurring(
         id TEXT PRIMARY KEY, name TEXT, amount REAL, freq TEXT, next TEXT,
         catId TEXT, kind TEXT, total INTEGER, paid INTEGER,
-        icon TEXT, color TEXT, accountId TEXT, nextDate TEXT
+        icon TEXT, color TEXT, accountId TEXT, nextDate TEXT,
+        startDate TEXT, endDate TEXT
       )''');
     await db.execute('''
       CREATE TABLE categories(
@@ -85,6 +86,10 @@ class SqliteLedgerRepository implements LedgerRepository {
     }
     if (oldVersion < 9) {
       await db.execute('ALTER TABLE accounts ADD COLUMN fxRate REAL');
+    }
+    if (oldVersion < 10) {
+      await db.execute('ALTER TABLE recurring ADD COLUMN startDate TEXT');
+      await db.execute('ALTER TABLE recurring ADD COLUMN endDate TEXT');
     }
   }
 

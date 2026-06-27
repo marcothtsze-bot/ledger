@@ -1,5 +1,10 @@
 import 'enums.dart';
 
+/// Sentinel so [Recurring.copyWith] (and callers that forward through it) can
+/// tell an omitted `endDate` apart from an explicit `endDate: null` (clearing a
+/// subscription's end back to ongoing).
+const Object kKeepEndDate = Object();
+
 /// A recurring commitment: either a subscription or an installment plan.
 ///
 /// For installments, [amount] is the per-month figure, [total] the number of
@@ -18,6 +23,8 @@ class Recurring {
   final String? color; // chosen hex tint (null = category colour)
   final String? accountId; // account this is paid from (null = ask on pay)
   final DateTime? nextDate; // real next-due date driving the Due alert
+  final DateTime? startDate; // first charge / when the commitment begins
+  final DateTime? endDate; // when it stops (null = ongoing); for subscriptions
 
   const Recurring({
     required this.id,
@@ -33,6 +40,8 @@ class Recurring {
     this.color,
     this.accountId,
     this.nextDate,
+    this.startDate,
+    this.endDate,
   });
 
   Recurring copyWith({
@@ -48,6 +57,8 @@ class Recurring {
     String? color,
     String? accountId,
     DateTime? nextDate,
+    DateTime? startDate,
+    Object? endDate = kKeepEndDate,
   }) {
     return Recurring(
       id: id,
@@ -63,6 +74,10 @@ class Recurring {
       color: color ?? this.color,
       accountId: accountId ?? this.accountId,
       nextDate: nextDate ?? this.nextDate,
+      startDate: startDate ?? this.startDate,
+      endDate: identical(endDate, kKeepEndDate)
+          ? this.endDate
+          : endDate as DateTime?,
     );
   }
 
@@ -80,6 +95,8 @@ class Recurring {
     'color': color,
     'accountId': accountId,
     'nextDate': nextDate?.toIso8601String(),
+    'startDate': startDate?.toIso8601String(),
+    'endDate': endDate?.toIso8601String(),
   };
 
   factory Recurring.fromMap(Map<String, Object?> m) => Recurring(
@@ -96,5 +113,7 @@ class Recurring {
     color: m['color'] as String?,
     accountId: m['accountId'] as String?,
     nextDate: DateTime.tryParse((m['nextDate'] as String?) ?? ''),
+    startDate: DateTime.tryParse((m['startDate'] as String?) ?? ''),
+    endDate: DateTime.tryParse((m['endDate'] as String?) ?? ''),
   );
 }
