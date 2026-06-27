@@ -29,7 +29,10 @@ class HomeScreen extends ConsumerWidget {
     final s = ref.watch(ledgerProvider);
     final n = ref.read(ledgerProvider.notifier);
     final pinned = s.pinnedAccounts;
-    final net = s.incomeMonth - s.expenseMonth;
+    // Current-month totals derived from transaction dates (not the running
+    // incomeMonth/expenseMonth counters, which aren't month-scoped).
+    final flow = s.monthFlow(DateTime.now());
+    final net = flow.income - flow.expense;
 
     return ListView(
       padding: EdgeInsets.zero,
@@ -44,13 +47,13 @@ class HomeScreen extends ConsumerWidget {
                 children: [
                   _statCard(
                     '▲ Income',
-                    hk(s.incomeMonth),
+                    hk(flow.income),
                     AppColors.softGreen2,
                   ),
                   const SizedBox(width: 10),
                   _statCard(
                     '▼ Expense',
-                    hk(s.expenseMonth),
+                    hk(flow.expense),
                     AppColors.expenseMuted,
                   ),
                   const SizedBox(width: 10),

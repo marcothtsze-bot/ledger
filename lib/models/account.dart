@@ -60,9 +60,13 @@ class Account {
   /// Base-currency ([kBaseCurrency]) value of one unit of this account's
   /// currency: its own [fxRate] when set, otherwise the built-in default. Base
   /// accounts are always 1:1 so they never depend on a rate.
-  double get rateToHkd => currency.toUpperCase() == kBaseCurrency
-      ? 1.0
-      : (fxRate ?? defaultRateToHkd(currency));
+  double get rateToHkd {
+    if (currency.toUpperCase() == kBaseCurrency) return 1.0;
+    final r = fxRate;
+    // Guard against a corrupt/imported non-positive rate (0 would zero the
+    // balance out of net worth; a negative would flip its sign).
+    return (r != null && r > 0) ? r : defaultRateToHkd(currency);
+  }
 
   /// This account's [balance] converted into the base currency.
   double get balanceHkd => balance * rateToHkd;
@@ -86,7 +90,7 @@ class Account {
     double? minPayment,
     int? statementDay,
     int? dueDay,
-    double? statementBalance,
+    Object? statementBalance = _undefined,
     bool? pinned,
   }) {
     return Account(
@@ -107,7 +111,9 @@ class Account {
       minPayment: minPayment ?? this.minPayment,
       statementDay: statementDay ?? this.statementDay,
       dueDay: dueDay ?? this.dueDay,
-      statementBalance: statementBalance ?? this.statementBalance,
+      statementBalance: identical(statementBalance, _undefined)
+          ? this.statementBalance
+          : (statementBalance as num?)?.toDouble(),
       pinned: pinned ?? this.pinned,
     );
   }

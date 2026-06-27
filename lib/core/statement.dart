@@ -87,11 +87,14 @@ String nextDueLabel(int day, DateTime today) {
 
 /// The next due date for a recurring item: +7 days for `'Weekly'`, otherwise one
 /// month on with the day clamped to the target month's length (Jan 31 → Feb 28).
-DateTime nextRecurringDate(DateTime from, String freq) {
+/// Pass [anchorDay] to advance from a fixed day-of-month so a clamp doesn't
+/// stick — e.g. a Jan-31 bill stays on the 31st (Feb 28 → Mar 31), not drifting
+/// to the 28th. Defaults to [from]'s own day.
+DateTime nextRecurringDate(DateTime from, String freq, {int? anchorDay}) {
   if (freq == 'Weekly') return from.add(const Duration(days: 7));
   final month = from.month == 12 ? 1 : from.month + 1;
   final year = from.month == 12 ? from.year + 1 : from.year;
-  return _clampedDate(year, month, from.day);
+  return _clampedDate(year, month, anchorDay ?? from.day);
 }
 
 /// Charges accrued since the statement closed (not yet billed) =

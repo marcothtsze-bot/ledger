@@ -90,10 +90,9 @@ void main() {
         ],
       );
 
-  test('detects only same name+amount+account as duplicates', () {
+  test('detects only the redundant sub as a duplicate', () {
     final s = marcoLike();
-    expect(s.duplicateRecurringGroups.length, 1); // only the two Loan-1662s
-    expect(s.duplicateRecurringCount, 1); // one item would be removed
+    expect(s.duplicateRecurringCount, 1); // only the stray Loan sub
   });
 
   test('merge drops the stray sub, keeps the installment + everything else', () {

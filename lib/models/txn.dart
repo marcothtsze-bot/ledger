@@ -17,6 +17,9 @@ class Txn {
   final bool statementBilled; // charged onto a credit-card statement (installment
   // / subscription billing) — so edit/delete can roll the statement back
   final String? note; // free-text user note (separate from payee/foreign)
+  final double? toAmount; // amount credited to toAcctId in ITS currency, for a
+  // cross-currency transfer (null = same as `amount`)
+  final String? recurringId; // links an installment seed txn to its Recurring
 
   const Txn({
     required this.id,
@@ -30,7 +33,13 @@ class Txn {
     this.toAcctId,
     this.statementBilled = false,
     this.note,
+    this.toAmount,
+    this.recurringId,
   });
+
+  /// The amount credited to the destination account in its own currency — the
+  /// explicit [toAmount] when a transfer crosses currencies, else [amount].
+  double get destAmount => toAmount ?? amount;
 
   Txn copyWith({
     TxnType? type,
@@ -43,6 +52,8 @@ class Txn {
     String? toAcctId,
     bool? statementBilled,
     String? note,
+    double? toAmount,
+    String? recurringId,
   }) {
     return Txn(
       id: id,
@@ -56,6 +67,8 @@ class Txn {
       toAcctId: toAcctId ?? this.toAcctId,
       statementBilled: statementBilled ?? this.statementBilled,
       note: note ?? this.note,
+      toAmount: toAmount ?? this.toAmount,
+      recurringId: recurringId ?? this.recurringId,
     );
   }
 
@@ -73,6 +86,8 @@ class Txn {
     'toAcctId': toAcctId,
     'statementBilled': statementBilled ? 1 : 0,
     'note': note,
+    'toAmount': toAmount,
+    'recurringId': recurringId,
   };
 
   factory Txn.fromMap(Map<String, Object?> m) => Txn(
@@ -87,5 +102,7 @@ class Txn {
     toAcctId: m['toAcctId'] as String?,
     statementBilled: ((m['statementBilled'] as num?)?.toInt() ?? 0) == 1,
     note: m['note'] as String?,
+    toAmount: (m['toAmount'] as num?)?.toDouble(),
+    recurringId: m['recurringId'] as String?,
   );
 }

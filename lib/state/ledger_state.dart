@@ -432,6 +432,14 @@ class LedgerState {
     return a == null ? amount : amount * a.rateToHkd;
   }
 
+  /// The amount the destination receives in its own currency for a transfer of
+  /// [amt] (in [fromId]'s currency) — FX-converted so both legs are value-equal.
+  double _transferDest(double amt, String fromId, String toId) {
+    final fromRate = accountById(fromId)?.rateToHkd ?? 1.0;
+    final toRate = accountById(toId)?.rateToHkd ?? 1.0;
+    return toRate == 0 ? amt : amt * fromRate / toRate;
+  }
+
   /// Total net worth in the base currency — every account's balance converted
   /// at its own rate, so a ¥ or US$ account is no longer counted as HK$.
   double get netWorth => accounts.fold(0, (sum, a) => sum + a.balanceHkd);
@@ -553,6 +561,7 @@ class LedgerState {
       final remaining = r.kind == RecurringKind.installment
           ? (r.total ?? 0) - (r.paid ?? 0)
           : null;
+      final anchor = r.startDate?.day ?? r.nextDate?.day;
       var d = r.nextDate;
       var produced = 0;
       while (d != null && !d.isAfter(end)) {
@@ -566,9 +575,12 @@ class LedgerState {
               amount: _toHkd(r.amount, acct.id),
             ),
           );
+          // Count only obligations actually shown — a past-due occurrence (before
+          // the window) must not consume an installment's remaining slot, or the
+          // real in-window charge gets dropped.
+          produced++;
         }
-        produced++;
-        d = nextRecurringDate(d, r.freq);
+        d = nextRecurringDate(d, r.freq, anchorDay: anchor);
       }
     }
 
@@ -628,6 +640,7 @@ class LedgerState {
       final r = recs[ri];
       var d = r.nextDate;
       if (d == null) continue;
+      final anchor = r.startDate?.day ?? d.day;
       final remaining = r.kind == RecurringKind.installment
           ? (r.total ?? 0) - (r.paid ?? 0)
           : null;
@@ -638,7 +651,7 @@ class LedgerState {
         produced++;
         final idx = closes.indexWhere((cl) => !cl.isBefore(d!));
         if (idx >= 0) counts[ri][idx]++;
-        d = nextRecurringDate(d, r.freq);
+        d = nextRecurringDate(d, r.freq, anchorDay: anchor);
       }
     }
     final out = <UpcomingStatement>[];
@@ -664,7 +677,7 @@ class LedgerState {
     TxnType.income => _toHkd(t.amount, t.acctId),
     TxnType.expense => -_toHkd(t.amount, t.acctId),
     TxnType.transfer =>
-      _toHkd(t.amount, t.toAcctId ?? '') - _toHkd(t.amount, t.acctId),
+      _toHkd(t.destAmount, t.toAcctId ?? '') - _toHkd(t.amount, t.acctId),
   };
 
   /// Net worth (base currency) as of the end of [day], reconstructed by undoing
@@ -710,25 +723,46 @@ class LedgerState {
   List<Recurring> get installments =>
       recurring.where((r) => r.kind == RecurringKind.installment).toList();
 
-  /// Recurring grouped where they look like accidental duplicates — same
-  /// normalised name, amount, and account. Only groups with more than one
-  /// member are returned. (Fallout from the old duplicate-id generator.)
-  List<List<Recurring>> get duplicateRecurringGroups {
+  /// Ids of recurring a one-tap merge would remove. Within each set sharing a
+  /// name + amount + account, items are only treated as duplicates when they're
+  /// genuinely redundant: a subscription mirroring an installment plan (the old
+  /// duplicate-id artifact), or a second item with an identical schedule (same
+  /// kind + frequency + category). Distinct schedules — e.g. a weekly and a
+  /// monthly charge of the same amount — are deliberately left alone.
+  Set<String> get _duplicateRecurringDropIds {
     final groups = <String, List<Recurring>>{};
     for (final r in recurring) {
       final key =
           '${r.name.trim().toLowerCase()}|${r.amount}|${r.accountId ?? ''}';
       (groups[key] ??= []).add(r);
     }
-    return [
-      for (final g in groups.values)
-        if (g.length > 1) g,
-    ];
+    final drop = <String>{};
+    for (final g in groups.values) {
+      if (g.length < 2) continue;
+      final hasInstallment = g.any((r) => r.kind == RecurringKind.installment);
+      // Keep installments (real plans) and the most-progressed item first.
+      final ranked = [...g]..sort((a, b) {
+        final ak = a.kind == RecurringKind.installment ? 0 : 1;
+        final bk = b.kind == RecurringKind.installment ? 0 : 1;
+        if (ak != bk) return ak - bk;
+        return (b.paid ?? 0) - (a.paid ?? 0);
+      });
+      final keptSchedules = <String>{};
+      for (final r in ranked) {
+        final schedule = '${r.kind.name}|${r.freq}|${r.catId}';
+        final redundantSub = r.kind == RecurringKind.sub && hasInstallment;
+        if (redundantSub || keptSchedules.contains(schedule)) {
+          drop.add(r.id);
+        } else {
+          keptSchedules.add(schedule);
+        }
+      }
+    }
+    return drop;
   }
 
-  /// How many recurring would be removed by merging duplicates.
-  int get duplicateRecurringCount =>
-      duplicateRecurringGroups.fold(0, (sum, g) => sum + g.length - 1);
+  /// How many recurring a one-tap merge would remove.
+  int get duplicateRecurringCount => _duplicateRecurringDropIds.length;
 
   bool get isTransfer => txnType == TxnType.transfer;
 
@@ -868,6 +902,16 @@ class LedgerState {
         ? categoryById(categoryId).name
         : payee.trim();
     final txId = _nextTxnId;
+    // Generate the installment plan's id up front so the seed transaction links
+    // to it — deleting/editing the seed then keeps the plan in sync.
+    final installRid =
+        repeat == RepeatMode.installment ? _uniqueRecurringId() : null;
+    final isXfer = txnType == TxnType.transfer;
+    final destAmt = isXfer
+        ? _transferDest(logged, accountId, toAccountId)
+        : logged;
+    final crossCurrency = isXfer &&
+        accountById(accountId)?.currency != accountById(toAccountId)?.currency;
     final tx = Txn(
       id: txId,
       type: txnType,
@@ -879,7 +923,9 @@ class LedgerState {
       foreign: repeat == RepeatMode.installment
           ? 'Installment 1 of $installMonths'
           : null,
-      toAcctId: txnType == TxnType.transfer ? toAccountId : null,
+      toAcctId: isXfer ? toAccountId : null,
+      toAmount: crossCurrency ? destAmt : null,
+      recurringId: installRid,
       note: note.trim().isEmpty ? null : note.trim(),
     );
 
@@ -888,7 +934,7 @@ class LedgerState {
       if (a.id == accountId) {
         b += (txnType == TxnType.income) ? logged : -logged;
       }
-      if (txnType == TxnType.transfer && a.id == toAccountId) b += logged;
+      if (isXfer && a.id == toAccountId) b += destAmt;
       return a.copyWith(balance: b);
     }).toList();
 
@@ -906,7 +952,7 @@ class LedgerState {
       final nd = nextRecurringDate(txnDate, 'Monthly');
       newRecurring = [
         Recurring(
-          id: _uniqueRecurringId(),
+          id: installRid!,
           name: pay,
           amount: per,
           freq: 'Installment',
@@ -1008,6 +1054,10 @@ class LedgerState {
     final pay = payee.trim().isEmpty
         ? categoryById(categoryId).name
         : payee.trim();
+    final isXfer = txnType == TxnType.transfer;
+    final destAmt = isXfer ? _transferDest(amt, accountId, toAccountId) : amt;
+    final crossCurrency = isXfer &&
+        accountById(accountId)?.currency != accountById(toAccountId)?.currency;
     final updated = Txn(
       id: old.id,
       type: txnType,
@@ -1017,7 +1067,10 @@ class LedgerState {
       acctId: accountId,
       date: txnDate,
       foreign: old.foreign,
-      toAcctId: txnType == TxnType.transfer ? toAccountId : null,
+      toAcctId: isXfer ? toAccountId : null,
+      toAmount: crossCurrency ? destAmt : null,
+      statementBilled: old.statementBilled,
+      recurringId: old.recurringId,
       note: note.trim().isEmpty ? null : note.trim(),
     );
 
@@ -1026,9 +1079,11 @@ class LedgerState {
       if (a.id == old.acctId) {
         b += (old.type == TxnType.income) ? -old.amount : old.amount;
       }
-      if (old.type == TxnType.transfer && a.id == old.toAcctId) b -= old.amount;
+      if (old.type == TxnType.transfer && a.id == old.toAcctId) {
+        b -= old.destAmount;
+      }
       if (a.id == accountId) b += (txnType == TxnType.income) ? amt : -amt;
-      if (txnType == TxnType.transfer && a.id == toAccountId) b += amt;
+      if (isXfer && a.id == toAccountId) b += destAmt;
       return a.copyWith(balance: b);
     }).toList();
 
@@ -1046,11 +1101,23 @@ class LedgerState {
       exp += newHkd;
     }
 
+    // Keep a linked installment plan in sync when its seed transaction is edited.
+    final newRecurring = old.recurringId == null
+        ? recurring
+        : recurring
+              .map(
+                (r) => r.id == old.recurringId
+                    ? r.copyWith(amount: amt, name: pay, catId: categoryId)
+                    : r,
+              )
+              .toList();
+
     return copyWith(
       transactions: transactions
           .map((t) => t.id == editingTxnId ? updated : t)
           .toList(),
       accounts: newAccounts,
+      recurring: newRecurring,
       incomeMonth: inc,
       expenseMonth: exp,
       amount: '',
@@ -1074,7 +1141,9 @@ class LedgerState {
       if (a.id == old.acctId) {
         b += (old.type == TxnType.income) ? -old.amount : old.amount;
       }
-      if (old.type == TxnType.transfer && a.id == old.toAcctId) b -= old.amount;
+      if (old.type == TxnType.transfer && a.id == old.toAcctId) {
+        b -= old.destAmount; // credit the destination got, in ITS currency
+      }
       return a.copyWith(balance: b);
     }).toList();
     var inc = incomeMonth, exp = expenseMonth;
@@ -1084,9 +1153,17 @@ class LedgerState {
     } else if (old.type == TxnType.expense) {
       exp -= oldHkd;
     }
+    // Deleting a linked installment seed cancels its plan, so it can't keep
+    // charging with a phantom paid count.
+    final cancelsPlan =
+        old.recurringId != null && recurring.any((r) => r.id == old.recurringId);
+    final newRecurring = cancelsPlan
+        ? recurring.where((r) => r.id != old.recurringId).toList()
+        : recurring;
     return copyWith(
       transactions: transactions.where((t) => t.id != id).toList(),
       accounts: newAccounts,
+      recurring: newRecurring,
       incomeMonth: inc,
       expenseMonth: exp,
       amount: '',
@@ -1096,7 +1173,7 @@ class LedgerState {
       invalid: false,
       editingTxnId: 0,
       sheetOpen: false,
-      toast: 'Transaction deleted',
+      toast: cancelsPlan ? 'Transaction deleted · plan cancelled' : 'Transaction deleted',
     );
   }
 
@@ -1127,8 +1204,11 @@ class LedgerState {
             ? existing.statementDay
             : _parseDay(newStatementDay),
         dueDay: newDueDay.isEmpty ? existing.dueDay : _parseDay(newDueDay),
-        statementBalance: newStatementBalance.isEmpty
-            ? existing.statementBalance
+        // Blank now CLEARS the statement balance back to null ("no statement
+        // closed yet"); the field is pre-filled on edit, so an untouched edit
+        // keeps the existing value.
+        statementBalance: newStatementBalance.trim().isEmpty
+            ? null
             : parseAmount(newStatementBalance),
       );
       final next = accounts
@@ -1262,7 +1342,8 @@ class LedgerState {
     final tx = Txn(
       id: _nextTxnId,
       type: TxnType.transfer,
-      amount: payerAmount,
+      amount: payerAmount, // debited from the payer, in the payer's currency
+      toAmount: amount, // credited to the card, in the card's currency
       payee: '${card.name} payment',
       catId: payCatId,
       acctId: from.id,
@@ -1471,20 +1552,7 @@ class LedgerState {
   /// most informative of each set — an installment plan (with paid progress)
   /// over a plain subscription. One-tap cleanup for the old duplicate-id bug.
   LedgerState mergeDuplicateRecurring() {
-    final dropIds = <String>{};
-    for (final g in duplicateRecurringGroups) {
-      final ranked = [...g]..sort((a, b) {
-        // An installment (a real plan) beats a plain subscription...
-        final ak = a.kind == RecurringKind.installment ? 0 : 1;
-        final bk = b.kind == RecurringKind.installment ? 0 : 1;
-        if (ak != bk) return ak - bk;
-        // ...then keep the more-progressed one.
-        return (b.paid ?? 0) - (a.paid ?? 0);
-      });
-      for (final r in ranked.skip(1)) {
-        dropIds.add(r.id);
-      }
-    }
+    final dropIds = _duplicateRecurringDropIds;
     if (dropIds.isEmpty) return this;
     final n = dropIds.length;
     return copyWith(
@@ -1526,7 +1594,7 @@ class LedgerState {
   /// paid count for installment plans).
   Recurring _advanceRecurring(Recurring r) {
     final from = r.nextDate ?? DateTime.now();
-    final nd = nextRecurringDate(from, r.freq);
+    final nd = nextRecurringDate(from, r.freq, anchorDay: r.startDate?.day ?? from.day);
     return r.copyWith(
       nextDate: nd,
       next: '${monthAbbrev(nd.month)} ${nd.day}',
