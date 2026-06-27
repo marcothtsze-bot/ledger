@@ -65,6 +65,7 @@ class LedgerNotifier extends Notifier<LedgerState> {
     sheetOpen: true,
     editingTxnId: 0,
     txnDate: DateTime.now(),
+    recurEnd: null,
     picker: ActivePicker.none,
   );
   void closeSheet() => state = state.copyWith(
@@ -73,6 +74,7 @@ class LedgerNotifier extends Notifier<LedgerState> {
     amount: '',
     payee: '',
     repeat: RepeatMode.off,
+    recurEnd: null,
     invalid: false,
     picker: ActivePicker.none,
   );
@@ -228,6 +230,13 @@ class LedgerNotifier extends Notifier<LedgerState> {
   void openRepeatPicker() =>
       state = state.copyWith(picker: ActivePicker.repeat);
   void openDatePicker() => state = state.copyWith(picker: ActivePicker.date);
+  void openRecurEndPicker() =>
+      state = state.copyWith(picker: ActivePicker.recurEnd);
+
+  /// Sets the drafted monthly-repeat end date (null = ongoing) and closes the
+  /// picker.
+  void setRecurEnd(DateTime? d) =>
+      state = state.copyWith(recurEnd: d, picker: ActivePicker.none);
   void closePicker() => state = state.copyWith(picker: ActivePicker.none);
   void pickAccount(String id) => state = state.picking == PickingSide.to
       ? state.copyWith(toAccountId: id, picker: ActivePicker.none)

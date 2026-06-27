@@ -18,7 +18,11 @@ enum AppTab { home, accounts, activity, insights }
 enum LedgerOverlay { none, recurring, account }
 
 /// Which slide-up picker is open inside the Add Transaction sheet.
-enum ActivePicker { none, account, category, repeat, date }
+enum ActivePicker { none, account, category, repeat, date, recurEnd }
+
+/// Sentinel so [LedgerState.copyWith] can set the drafted recurring end date
+/// back to null (ongoing) rather than leaving it unchanged.
+const Object _undefinedRecurEnd = Object();
 
 /// When the account picker is open, whether we're choosing the "from" or
 /// transfer "to" account.
@@ -49,6 +53,31 @@ class MonthlyFlow {
   });
 
   double get net => income - expense;
+}
+
+/// A projected upcoming credit-card statement: when it closes and is due, plus
+/// the recurring charges (installments + subscriptions) that will land on it.
+class UpcomingStatement {
+  final DateTime close;
+  final DateTime? due;
+  final List<StatementCharge> charges;
+  const UpcomingStatement({
+    required this.close,
+    required this.due,
+    required this.charges,
+  });
+
+  double get total => charges.fold(0, (s, c) => s + c.amount);
+}
+
+/// One recurring item's contribution to a projected statement (its amount times
+/// how many times it charges within that statement's cycle).
+class StatementCharge {
+  final Recurring source;
+  final int count;
+  const StatementCharge({required this.source, required this.count});
+
+  double get amount => source.amount * count;
 }
 
 const _unknownCategory = Category(
@@ -133,6 +162,7 @@ class LedgerState {
   final int installMonths;
   final int editingTxnId; // 0 = adding, else the transaction id being edited
   final DateTime txnDate; // date for the drafted transaction
+  final DateTime? recurEnd; // drafted monthly-repeat end date (null = ongoing)
 
   // Add / Edit Account draft
   final String editingAccountId; // '' = adding, else the id being edited
@@ -189,6 +219,7 @@ class LedgerState {
     required this.installMonths,
     required this.editingTxnId,
     required this.txnDate,
+    this.recurEnd,
     required this.editingAccountId,
     required this.newName,
     required this.newIcon,
@@ -409,6 +440,64 @@ class LedgerState {
         (sum, r) => sum + r.amount * chargesBeforeNextClose(r, cardId, now),
       );
 
+  /// Projected upcoming statements for credit card [cardId] over the next
+  /// [cycles] statement closes (skipping any with no committed charges), each
+  /// listing the installments + subscriptions that land on it. The whole
+  /// committed runway, so the user sees future card charges before they hit.
+  List<UpcomingStatement> upcomingStatements(
+    String cardId,
+    DateTime now, {
+    int cycles = 6,
+  }) {
+    final card = accountById(cardId);
+    if (card == null || !card.isCreditCard || card.statementDay == null) {
+      return const [];
+    }
+    final closes = <DateTime>[];
+    var c = nextOccurrence(card.statementDay!, now);
+    for (var i = 0; i < cycles; i++) {
+      closes.add(c);
+      c = nextOccurrence(card.statementDay!, c.add(const Duration(days: 1)));
+    }
+    final last = closes.last;
+    final recs = recurring
+        .where((r) => r.accountId == cardId && _recurringChargeable(r, now))
+        .toList();
+    // For each recurring, project its charge dates forward and bin each onto the
+    // first statement that closes on or after it.
+    final counts = {for (final r in recs) r.id: List.filled(cycles, 0)};
+    for (final r in recs) {
+      var d = r.nextDate;
+      if (d == null) continue;
+      final remaining = r.kind == RecurringKind.installment
+          ? (r.total ?? 0) - (r.paid ?? 0)
+          : null;
+      var produced = 0;
+      while (!d!.isAfter(last)) {
+        if (remaining != null && produced >= remaining) break;
+        if (r.endDate != null && d.isAfter(r.endDate!)) break;
+        produced++;
+        final idx = closes.indexWhere((cl) => !cl.isBefore(d!));
+        if (idx >= 0) counts[r.id]![idx]++;
+        d = nextRecurringDate(d, r.freq);
+      }
+    }
+    final out = <UpcomingStatement>[];
+    for (var i = 0; i < cycles; i++) {
+      final charges = [
+        for (final r in recs)
+          if (counts[r.id]![i] > 0)
+            StatementCharge(source: r, count: counts[r.id]![i]),
+      ];
+      if (charges.isEmpty) continue;
+      final due = card.dueDay != null
+          ? nextOccurrence(card.dueDay!, closes[i])
+          : null;
+      out.add(UpcomingStatement(close: closes[i], due: due, charges: charges));
+    }
+    return out;
+  }
+
   /// Net-worth delta (base currency) a single transaction contributes: income
   /// lifts net worth, expense lowers it, a transfer nets to zero unless its two
   /// accounts convert at different rates.
@@ -581,10 +670,6 @@ class LedgerState {
         ? categoryById(categoryId).name
         : payee.trim();
     final txId = _nextTxnId;
-    // A credit-card installment bills its first month onto the statement, so
-    // mark the row to let edit/delete roll that statement charge back.
-    final billsCardStatement = repeat == RepeatMode.installment &&
-        (accountById(accountId)?.isCreditCard ?? false);
     final tx = Txn(
       id: txId,
       type: txnType,
@@ -597,22 +682,15 @@ class LedgerState {
           ? 'Installment 1 of $installMonths'
           : null,
       toAcctId: txnType == TxnType.transfer ? toAccountId : null,
-      statementBilled: billsCardStatement,
     );
 
     final newAccounts = accounts.map((a) {
       var b = a.balance;
-      var stmt = a.statementBalance;
       if (a.id == accountId) {
         b += (txnType == TxnType.income) ? logged : -logged;
-        // A credit-card installment bills its monthly portion straight onto the
-        // current statement the day it's created — not just into pending charges.
-        if (repeat == RepeatMode.installment && a.isCreditCard) {
-          stmt = (a.statementBalance ?? 0) + logged;
-        }
       }
       if (txnType == TxnType.transfer && a.id == toAccountId) b += logged;
-      return a.copyWith(balance: b, statementBalance: stmt);
+      return a.copyWith(balance: b);
     }).toList();
 
     var inc = incomeMonth, exp = expenseMonth;
@@ -657,6 +735,7 @@ class LedgerState {
       amount: '',
       payee: '',
       repeat: RepeatMode.off,
+      recurEnd: null,
       invalid: false,
       sheetOpen: !close,
       tab: close ? AppTab.activity : tab,
@@ -688,12 +767,14 @@ class LedgerState {
       accountId: accountId,
       nextDate: due,
       startDate: due,
+      endDate: recurEnd,
     );
     return copyWith(
       recurring: [sched, ...recurring],
       amount: '',
       payee: '',
       repeat: RepeatMode.off,
+      recurEnd: null,
       invalid: false,
       sheetOpen: !close,
       tab: close ? AppTab.home : tab,
@@ -724,10 +805,6 @@ class LedgerState {
     final pay = payee.trim().isEmpty
         ? categoryById(categoryId).name
         : payee.trim();
-    // A statement-billed charge stays billed only while it still lives on a
-    // credit card — so edit rolls the old charge back and re-bills the new one.
-    final stillBilled =
-        old.statementBilled && (accountById(accountId)?.isCreditCard ?? false);
     final updated = Txn(
       id: old.id,
       type: txnType,
@@ -738,24 +815,17 @@ class LedgerState {
       date: txnDate,
       foreign: old.foreign,
       toAcctId: txnType == TxnType.transfer ? toAccountId : null,
-      statementBilled: stillBilled,
     );
 
     final newAccounts = accounts.map((a) {
       var b = a.balance;
-      var stmt = a.statementBalance;
       if (a.id == old.acctId) {
         b += (old.type == TxnType.income) ? -old.amount : old.amount;
-        if (old.statementBilled && a.isCreditCard) stmt = (stmt ?? 0) - old.amount;
       }
       if (old.type == TxnType.transfer && a.id == old.toAcctId) b -= old.amount;
-      if (a.id == accountId) {
-        b += (txnType == TxnType.income) ? amt : -amt;
-        if (stillBilled && a.isCreditCard) stmt = (stmt ?? 0) + amt;
-      }
+      if (a.id == accountId) b += (txnType == TxnType.income) ? amt : -amt;
       if (txnType == TxnType.transfer && a.id == toAccountId) b += amt;
-      final floored = stmt == null ? null : (stmt < 0 ? 0.0 : stmt);
-      return a.copyWith(balance: b, statementBalance: floored);
+      return a.copyWith(balance: b);
     }).toList();
 
     var inc = incomeMonth, exp = expenseMonth;
@@ -795,17 +865,11 @@ class LedgerState {
     if (old == null) return copyWith(sheetOpen: false, editingTxnId: 0);
     final newAccounts = accounts.map((a) {
       var b = a.balance;
-      var stmt = a.statementBalance;
       if (a.id == old.acctId) {
         b += (old.type == TxnType.income) ? -old.amount : old.amount;
-        // Roll back the statement charge this row billed onto the card.
-        if (old.statementBilled && a.isCreditCard) {
-          final v = (stmt ?? 0) - old.amount;
-          stmt = v < 0 ? 0.0 : v;
-        }
       }
       if (old.type == TxnType.transfer && a.id == old.toAcctId) b -= old.amount;
-      return a.copyWith(balance: b, statementBalance: stmt);
+      return a.copyWith(balance: b);
     }).toList();
     var inc = incomeMonth, exp = expenseMonth;
     final oldHkd = _toHkd(old.amount, old.acctId);
@@ -1318,17 +1382,11 @@ class LedgerState {
       acctId: card.id,
       date: DateTime.now(),
       foreign: note,
-      statementBilled: true,
     );
+    // The charge raises what's owed on the card, which lands on the NEXT
+    // statement (pending) — not the current/closed statement balance.
     final newAccounts = accounts
-        .map(
-          (a) => a.id == card.id
-              ? a.copyWith(
-                  balance: a.balance - r.amount,
-                  statementBalance: (a.statementBalance ?? 0) + r.amount,
-                )
-              : a,
-        )
+        .map((a) => a.id == card.id ? a.copyWith(balance: a.balance - r.amount) : a)
         .toList();
     return copyWith(
       transactions: [tx, ...transactions],
@@ -1439,6 +1497,7 @@ class LedgerState {
     int? installMonths,
     int? editingTxnId,
     DateTime? txnDate,
+    Object? recurEnd = _undefinedRecurEnd,
     String? editingAccountId,
     String? newName,
     String? newIcon,
@@ -1489,6 +1548,9 @@ class LedgerState {
       installMonths: installMonths ?? this.installMonths,
       editingTxnId: editingTxnId ?? this.editingTxnId,
       txnDate: txnDate ?? this.txnDate,
+      recurEnd: identical(recurEnd, _undefinedRecurEnd)
+          ? this.recurEnd
+          : recurEnd as DateTime?,
       editingAccountId: editingAccountId ?? this.editingAccountId,
       newName: newName ?? this.newName,
       newIcon: newIcon ?? this.newIcon,

@@ -7,7 +7,6 @@ import '../core/money.dart';
 import '../core/statement.dart';
 import '../models/account.dart';
 import '../models/enums.dart';
-import '../models/recurring.dart';
 import '../state/ledger_notifier.dart';
 import '../state/ledger_state.dart';
 import '../theme/tokens.dart';
@@ -225,12 +224,10 @@ class AccountDetailOverlay extends ConsumerWidget {
   }
 
   Widget _committedSection(LedgerState s, Account a, DateTime today) {
-    final items = s.commitmentsForNextStatement(a.id, today);
-    if (items.isEmpty) return const SizedBox.shrink();
-    final committed = s.committedToNextStatement(a.id, today);
+    final statements = s.upcomingStatements(a.id, today);
+    if (statements.isEmpty) return const SizedBox.shrink();
+    final grandTotal = statements.fold<double>(0, (sum, st) => sum + st.total);
     final pending = pendingThisCycle(a.balance, a.statementBalance);
-    final projected = pending + committed;
-    final (close, due) = _nextStatementDates(a, today);
     return Column(
       children: [
         const SizedBox(height: 12),
@@ -249,11 +246,11 @@ class AccountDetailOverlay extends ConsumerWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'COMMITTED TO NEXT STATEMENT',
+                    'UPCOMING ON THIS CARD',
                     style: AppText.eyebrow().copyWith(fontSize: 11),
                   ),
                   Text(
-                    money(committed, a.currency),
+                    money(grandTotal, a.currency),
                     style: AppText.mono(
                       15,
                       FontWeight.w700,
@@ -264,7 +261,9 @@ class AccountDetailOverlay extends ConsumerWidget {
               ),
               const SizedBox(height: 4),
               Text(
-                'Subscriptions & installments already booked to this card.',
+                'Installments & subscriptions booked ahead, grouped by the '
+                'statement they land on — so you know what you owe before '
+                'buying more.',
                 style: AppText.ui(
                   12,
                   FontWeight.w400,
@@ -272,46 +271,12 @@ class AccountDetailOverlay extends ConsumerWidget {
                   height: 1.4,
                 ),
               ),
-              const SizedBox(height: 13),
-              for (var i = 0; i < items.length; i++) ...[
-                if (i > 0) const SizedBox(height: 9),
-                _commitmentRow(
-                  items[i],
-                  s.chargesBeforeNextClose(items[i], a.id, today),
+              for (var i = 0; i < statements.length; i++)
+                _statementBlock(
+                  statements[i],
                   a.currency,
+                  pending: i == 0 ? pending : 0,
                 ),
-              ],
-              const SizedBox(height: 13),
-              Container(height: 1, color: AppColors.hairline),
-              const SizedBox(height: 13),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Projected next statement',
-                    style: AppText.ui(13, FontWeight.w600),
-                  ),
-                  Text(
-                    money(projected, a.currency),
-                    style: AppText.mono(16, FontWeight.w700),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              if (close != null || due != null)
-                Text(
-                  [
-                    if (close != null) 'Closes ${_dayLabel(close)}',
-                    if (due != null) 'due ${_dayLabel(due)}',
-                  ].join(' · '),
-                  style: AppText.ui(11, FontWeight.w600, color: AppColors.muted),
-                ),
-              const SizedBox(height: 2),
-              Text(
-                '${money(pending, a.currency)} already posted + '
-                '${money(committed, a.currency)} committed',
-                style: AppText.ui(11, FontWeight.w400, color: AppColors.muted),
-              ),
             ],
           ),
         ),
@@ -319,14 +284,58 @@ class AccountDetailOverlay extends ConsumerWidget {
     );
   }
 
-  Widget _commitmentRow(Recurring r, int charges, String currency) {
+  Widget _statementBlock(
+    UpcomingStatement st,
+    String currency, {
+    double pending = 0,
+  }) {
+    final header = [
+      'Closes ${_dayLabel(st.close)}',
+      if (st.due != null) 'due ${_dayLabel(st.due!)}',
+    ].join(' · ');
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 14),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Flexible(
+              child: Text(
+                header,
+                style: AppText.ui(12.5, FontWeight.w700, color: AppColors.brand),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            Text(
+              money(st.total + pending, currency),
+              style: AppText.mono(14, FontWeight.w700),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        for (var i = 0; i < st.charges.length; i++) ...[
+          if (i > 0) const SizedBox(height: 7),
+          _chargeRow(st.charges[i], currency),
+        ],
+        if (pending > 0) ...[
+          const SizedBox(height: 7),
+          Text(
+            '+ ${money(pending, currency)} already posted this cycle',
+            style: AppText.muted12,
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _chargeRow(StatementCharge ch, String currency) {
+    final r = ch.source;
     final isInstallment = r.kind == RecurringKind.installment;
-    final total = r.amount * (charges < 1 ? 1 : charges);
     final tag = isInstallment
-        ? 'Installment ${(r.paid ?? 0) + 1} of ${r.total ?? 0}'
-        : (charges > 1
-              ? 'Subscription · ${money(r.amount, currency)} ×$charges'
-              : 'Subscription');
+        ? (ch.count > 1 ? 'Installment ×${ch.count}' : 'Installment')
+        : (ch.count > 1 ? 'Subscription ×${ch.count}' : 'Subscription');
     return Row(
       children: [
         Expanded(
@@ -340,7 +349,7 @@ class AccountDetailOverlay extends ConsumerWidget {
             ],
           ),
         ),
-        Text(money(total, currency), style: AppText.mono(14, FontWeight.w600)),
+        Text(money(ch.amount, currency), style: AppText.mono(14, FontWeight.w600)),
       ],
     );
   }

@@ -239,7 +239,9 @@ class _AddTransactionSheetState extends ConsumerState<AddTransactionSheet> {
                             ),
                           ),
                           _metaRow(
-                            label: 'Date',
+                            label: s.repeat == RepeatMode.monthly
+                                ? 'Starts'
+                                : 'Date',
                             trailing: Text(
                               '${compactDate(s.txnDate)} ›',
                               style: AppText.ui(14, FontWeight.w600),
@@ -261,6 +263,22 @@ class _AddTransactionSheetState extends ConsumerState<AddTransactionSheet> {
                                 ),
                               ),
                               onTap: n.openRepeatPicker,
+                              last: s.repeat != RepeatMode.monthly,
+                            ),
+                          if (!editing && s.repeat == RepeatMode.monthly)
+                            _metaRow(
+                              label: 'Ends',
+                              trailing: Text(
+                                '${s.recurEnd == null ? 'Ongoing' : compactDate(s.recurEnd!)} ›',
+                                style: AppText.ui(
+                                  14,
+                                  FontWeight.w600,
+                                  color: s.recurEnd == null
+                                      ? AppColors.muted
+                                      : AppColors.text,
+                                ),
+                              ),
+                              onTap: n.openRecurEndPicker,
                               last: true,
                             ),
                         ],
@@ -403,6 +421,7 @@ class _AddTransactionSheetState extends ConsumerState<AddTransactionSheet> {
             ActivePicker.category => _categoryPicker(s, n),
             ActivePicker.repeat => _repeatPicker(s, n),
             ActivePicker.date => _datePicker(s, n),
+            ActivePicker.recurEnd => _recurEndPicker(s, n),
             ActivePicker.none => const SizedBox.shrink(),
           },
         ),
@@ -652,6 +671,56 @@ class _AddTransactionSheetState extends ConsumerState<AddTransactionSheet> {
             child: MonthCalendar(
               selected: s.txnDate,
               onPick: n.pickDate,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// End-date picker for a monthly repeat: a calendar plus an "Ongoing" choice
+  /// that clears the end date.
+  Widget _recurEndPicker(LedgerState s, LedgerNotifier n) {
+    return Column(
+      children: [
+        _pickerHeader('Ends', n.closePicker),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => n.setRecurEnd(null),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 13),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: s.recurEnd == null
+                    ? AppColors.brand.withValues(alpha: 0.16)
+                    : AppColors.card,
+                borderRadius: BorderRadius.circular(13),
+                border: Border.all(
+                  color: s.recurEnd == null
+                      ? AppColors.brand
+                      : AppColors.hairline,
+                ),
+              ),
+              child: Text(
+                'Ongoing (no end date)',
+                style: AppText.ui(
+                  14,
+                  FontWeight.w600,
+                  color: s.recurEnd == null ? AppColors.brand : AppColors.text,
+                ),
+              ),
+            ),
+          ),
+        ),
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+            child: MonthCalendar(
+              selected: s.recurEnd ?? s.txnDate,
+              onPick: n.setRecurEnd,
             ),
           ),
         ),

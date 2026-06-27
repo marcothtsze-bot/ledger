@@ -1,10 +1,12 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ledger/core/statement.dart';
 import 'package:ledger/models/enums.dart';
 import 'package:ledger/models/recurring.dart';
 import 'package:ledger/state/ledger_state.dart';
 
-/// A recurring item billed to a credit card charges that card's statement
-/// directly. `citi` in the seed is a credit card (balance −8420, statement 6420).
+/// A recurring item billed to a credit card raises what's owed — which lands on
+/// the NEXT statement (pending), NOT the current/closed statement balance.
+/// `citi` (seed) is a credit card: balance −8420, statementBalance 6420.
 void main() {
   final base = LedgerState.initial();
 
@@ -19,45 +21,49 @@ void main() {
       )
       .save(close: true);
 
-  group('installment creation bills the card statement', () {
-    test('a credit-card installment lands its first month on the statement', () {
+  group('a card charge lands on the next statement, not the current one', () {
+    test('an installment raises pending and leaves the closed statement', () {
       final citi = newInstallment('citi', 6).accountById('citi')!;
-      expect(citi.statementBalance, 6620, reason: '6420 + 200 first month');
-      expect(citi.balance, -8620, reason: '-8420 - 200');
+      expect(citi.balance, -8620, reason: '-8420 - 200 owed');
+      expect(citi.statementBalance, 6420, reason: 'current statement untouched');
+      expect(
+        pendingThisCycle(citi.balance, citi.statementBalance),
+        2200, // was 2000, + 200 from the new charge → next statement
+      );
     });
 
-    test('an installment on a bank account leaves statementBalance null', () {
-      final hsbc = newInstallment('hsbc', 6).accountById('hsbc')!;
-      expect(hsbc.statementBalance, isNull);
+    test('an installment on a bank account has no statement', () {
+      expect(
+        newInstallment('hsbc', 6).accountById('hsbc')!.statementBalance,
+        isNull,
+      );
     });
   });
 
-  group('chargeToCard bills the next cycle to the card', () {
-    test('an installment month raises the statement and advances the plan', () {
+  group('chargeToCard bills the next cycle', () {
+    test('an installment month raises what is owed and advances', () {
       final created = newInstallment('citi', 6);
       final plan = created.installments.first;
       final before = created.accountById('citi')!;
       final after = created.chargeToCard(plan.id);
       final citi = after.accountById('citi')!;
 
-      expect(citi.statementBalance, before.statementBalance! + 200);
       expect(citi.balance, before.balance - 200);
+      expect(citi.statementBalance, before.statementBalance);
       expect(after.transactions.length, created.transactions.length + 1);
-      expect(after.expenseMonth, created.expenseMonth + 200);
       expect(after.recurring.firstWhere((x) => x.id == plan.id).paid, 2);
     });
 
-    test('a subscription on a card charges the statement and rolls forward', () {
+    test('a subscription on a card is charged and rolls forward', () {
       const sub = Recurring(
         id: 's1',
         name: 'Netflix',
         amount: 78,
         freq: 'Monthly',
-        next: 'Jul 1',
+        next: 'x',
         catId: 'subs',
         kind: RecurringKind.sub,
         accountId: 'citi',
-        nextDate: null,
       );
       final s = base.copyWith(
         recurring: [sub.copyWith(nextDate: DateTime(2026, 7, 1))],
@@ -65,9 +71,8 @@ void main() {
       final before = s.accountById('citi')!;
       final after = s.chargeToCard('s1');
       final citi = after.accountById('citi')!;
-
-      expect(citi.statementBalance, before.statementBalance! + 78);
       expect(citi.balance, before.balance - 78);
+      expect(citi.statementBalance, before.statementBalance);
       expect(after.transactions.first.payee, 'Netflix');
       expect(
         after.recurring.firstWhere((x) => x.id == 's1').nextDate,
@@ -81,21 +86,22 @@ void main() {
         name: 'Gym',
         amount: 300,
         freq: 'Monthly',
-        next: 'Jul 1',
+        next: 'x',
         catId: 'health',
         kind: RecurringKind.sub,
-        accountId: 'hsbc', // a bank account
+        accountId: 'hsbc',
       );
       final s = base.copyWith(recurring: [sub]);
       expect(identical(s.chargeToCard('s2'), s), isTrue);
     });
 
     test('a fully-paid installment refuses another charge', () {
-      final created = newInstallment('citi', 1); // total 1, paid 1
+      final created = newInstallment('citi', 1);
       final plan = created.installments.first;
-      final after = created.chargeToCard(plan.id);
-      expect(after.toast, 'Installment plan is fully paid');
-      expect(after.accountById('citi')!.balance, created.accountById('citi')!.balance);
+      expect(
+        created.chargeToCard(plan.id).toast,
+        'Installment plan is fully paid',
+      );
     });
   });
 }
