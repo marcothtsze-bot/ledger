@@ -69,6 +69,7 @@ class Account {
 
   /// Returns a new Account with the given fields replaced (immutable update).
   Account copyWith({
+    String? id,
     String? name,
     String? sub,
     String? letter,
@@ -89,7 +90,7 @@ class Account {
     bool? pinned,
   }) {
     return Account(
-      id: id,
+      id: id ?? this.id,
       name: name ?? this.name,
       sub: sub ?? this.sub,
       letter: letter ?? this.letter,

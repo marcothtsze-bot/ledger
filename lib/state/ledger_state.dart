@@ -75,6 +75,27 @@ int? _parseDay(String s) {
   return n?.clamp(1, 31).toInt();
 }
 
+/// Heals duplicate account ids left by the old `a{count}` id scheme so every
+/// account is independently addressable (tappable). The first occurrence keeps
+/// its id; a later duplicate gets a fresh suffixed id. Transactions can't be
+/// disambiguated, so they stay with the first occurrence.
+List<Account> _accountsWithUniqueIds(List<Account> accounts) {
+  final seen = <String>{};
+  final out = <Account>[];
+  for (final a in accounts) {
+    if (seen.add(a.id)) {
+      out.add(a);
+    } else {
+      var i = 2;
+      while (!seen.add('${a.id}-$i')) {
+        i++;
+      }
+      out.add(a.copyWith(id: '${a.id}-$i'));
+    }
+  }
+  return out;
+}
+
 /// The complete, immutable application state. Every transition returns a new
 /// instance (never mutates), and all the meaningful logic lives here as pure
 /// methods so it can be unit-tested without Flutter.
@@ -267,7 +288,7 @@ class LedgerState {
         ? defaultCatId
         : (cats.isNotEmpty ? cats.first.id : defaultCatId);
     return LedgerState.initial().copyWith(
-      accounts: s.accounts,
+      accounts: _accountsWithUniqueIds(s.accounts),
       transactions: s.transactions,
       recurring: s.recurring,
       categories: cats,
@@ -391,6 +412,18 @@ class LedgerState {
 
   int get _nextTxnId =>
       transactions.isEmpty ? 1 : transactions.map((t) => t.id).reduce(max) + 1;
+
+  /// A new account id guaranteed not to collide with an existing one. The old
+  /// `a{count}` scheme repeated an id after a delete, so two accounts could
+  /// share one — and tapping the later account opened the earlier.
+  String _uniqueAccountId() {
+    final taken = accounts.map((a) => a.id).toSet();
+    var i = accounts.length;
+    while (taken.contains('a$i')) {
+      i++;
+    }
+    return 'a$i';
+  }
 
   bool get hasActiveFilters =>
       filterAccountId.isNotEmpty ||
@@ -775,7 +808,7 @@ class LedgerState {
     final color = _accountPalette[accounts.length % _accountPalette.length];
 
     final acct = Account(
-      id: 'a${accounts.length}',
+      id: _uniqueAccountId(),
       name: name,
       sub: '$newType · $newCurrency',
       letter: name.substring(0, 1).toUpperCase(),
