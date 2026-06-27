@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/money.dart';
 import '../core/statement.dart';
+import '../models/enums.dart';
 import '../state/ledger_notifier.dart';
 import '../theme/hex_color.dart';
 import '../theme/icon_catalog.dart';
@@ -33,6 +34,7 @@ class _RecurringEditorSheetState extends ConsumerState<RecurringEditorSheet> {
   late String _color;
   late String _accountId;
   late DateTime _nextDate;
+  late final bool _isInstallment;
   bool _showCalendar = false;
   bool _invalid = false;
   bool _confirming = false;
@@ -44,6 +46,7 @@ class _RecurringEditorSheetState extends ConsumerState<RecurringEditorSheet> {
     final matches = s.recurring.where((r) => r.id == s.recurringEditorId);
     final r = matches.isEmpty ? null : matches.first;
     final cat = r == null ? null : s.categoryById(r.catId);
+    _isInstallment = r?.kind == RecurringKind.installment;
     _name = TextEditingController(text: r?.name ?? '');
     _amount = TextEditingController(text: r == null ? '' : _fmt(r.amount));
     _icon = r?.icon ?? cat?.icon ?? kSubscriptionIcons.first;
@@ -93,7 +96,9 @@ class _RecurringEditorSheetState extends ConsumerState<RecurringEditorSheet> {
                   children: [
                     const SheetHandle(),
                     SheetHeader(
-                      title: 'Edit subscription',
+                      title: _isInstallment
+                          ? 'Edit installment'
+                          : 'Edit subscription',
                       onCancel: n.closeRecurringEditor,
                     ),
                     Flexible(
@@ -118,7 +123,7 @@ class _RecurringEditorSheetState extends ConsumerState<RecurringEditorSheet> {
                             _field(_name, hint: 'e.g. Netflix', invalid: _invalid,
                                 onChanged: (_) => setState(() => _invalid = false)),
                             const SizedBox(height: 16),
-                            _label('Amount'),
+                            _label(_isInstallment ? 'Monthly amount' : 'Amount'),
                             const SizedBox(height: 7),
                             _field(_amount, hint: '0', mono: true, number: true),
                             const SizedBox(height: 16),
@@ -218,7 +223,10 @@ class _RecurringEditorSheetState extends ConsumerState<RecurringEditorSheet> {
                                       color: AppColors.expense
                                           .withValues(alpha: 0.4)),
                                 ),
-                                child: Text('Cancel subscription',
+                                child: Text(
+                                    _isInstallment
+                                        ? 'Cancel plan'
+                                        : 'Cancel subscription',
                                     style: AppText.ui(15, FontWeight.w600,
                                         color: AppColors.expense)),
                               ),
@@ -236,9 +244,11 @@ class _RecurringEditorSheetState extends ConsumerState<RecurringEditorSheet> {
         if (_confirming)
           ConfirmOverlay(
             title: 'Cancel ${_name.text.trim()}?',
-            message:
-                'This removes it from your subscriptions and upcoming payments.',
-            confirmLabel: 'Cancel it',
+            message: _isInstallment
+                ? 'This removes the installment plan from your upcoming '
+                      'payments. Payments already made are kept.'
+                : 'This removes it from your subscriptions and upcoming payments.',
+            confirmLabel: _isInstallment ? 'Cancel plan' : 'Cancel it',
             cancelLabel: 'Keep',
             onCancel: () => setState(() => _confirming = false),
             onConfirm: () => n.deleteRecurringById(

@@ -75,7 +75,11 @@ class RecurringOverlay extends ConsumerWidget {
               _installmentEmpty()
             else
               for (final r in installments) ...[
-                _installmentRow(s, r),
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => n.openEditRecurring(r.id),
+                  child: _installmentRow(s, r),
+                ),
                 const SizedBox(height: 12),
               ],
           ],
@@ -215,6 +219,12 @@ class RecurringOverlay extends ConsumerWidget {
                     ),
                   ),
                 ],
+              ),
+              const SizedBox(width: 4),
+              const Icon(
+                Symbols.chevron_right_rounded,
+                size: 18,
+                color: AppColors.idleTab,
               ),
             ],
           ),
