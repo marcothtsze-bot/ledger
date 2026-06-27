@@ -9,7 +9,8 @@ import 'icon_tile.dart';
 class TxnRow extends StatelessWidget {
   final TxnRowData data;
   final VoidCallback? onTap;
-  const TxnRow(this.data, {super.key, this.onTap});
+  final bool showDate; // show the transaction date under the amount
+  const TxnRow(this.data, {super.key, this.onTap, this.showDate = false});
 
   @override
   Widget build(BuildContext context) {
@@ -42,10 +43,31 @@ class TxnRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          Text(
-            data.amountText,
-            style: AppText.mono(15, FontWeight.w600, color: data.amountColor),
-          ),
+          if (showDate)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  data.amountText,
+                  style: AppText.mono(
+                    15,
+                    FontWeight.w600,
+                    color: data.amountColor,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  data.date,
+                  style: AppText.ui(11, FontWeight.w400, color: AppColors.muted),
+                ),
+              ],
+            )
+          else
+            Text(
+              data.amountText,
+              style: AppText.mono(15, FontWeight.w600, color: data.amountColor),
+            ),
         ],
       ),
     );

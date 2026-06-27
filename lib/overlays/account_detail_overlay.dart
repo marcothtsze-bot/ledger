@@ -28,7 +28,8 @@ class AccountDetailOverlay extends ConsumerWidget {
     final a = s.accountById(s.overlayAcct);
     if (a == null) return const SizedBox.shrink();
 
-    final txns = s.transactions.where((t) => t.acctId == a.id).toList();
+    final txns = s.transactions.where((t) => t.acctId == a.id).toList()
+      ..sort((x, y) => y.date.compareTo(x.date)); // newest first, for reconciling
     final limit = a.creditLimit ?? 0;
     // Reserve committed-but-unbilled installments against the limit too.
     final reserved = s.cardReserved(a.id);
@@ -191,7 +192,11 @@ class AccountDetailOverlay extends ConsumerWidget {
               GroupedCard(
                 children: [
                   for (final t in txns)
-                    TxnRow(txnRowData(s, t), onTap: () => n.openEditTxn(t.id)),
+                    TxnRow(
+                      txnRowData(s, t),
+                      onTap: () => n.openEditTxn(t.id),
+                      showDate: true,
+                    ),
                 ],
               ),
           ],
