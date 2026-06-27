@@ -57,6 +57,10 @@ class RecurringOverlay extends ConsumerWidget {
                 _statCard('Annualised', hk(s.recurringMonthly * 12)),
               ],
             ),
+            if (s.duplicateRecurringCount > 0) ...[
+              const SizedBox(height: 16),
+              _duplicateBanner(s, n),
+            ],
             const SizedBox(height: 24),
             const EyebrowLabel('Subscriptions'),
             const SizedBox(height: 10),
@@ -84,6 +88,54 @@ class RecurringOverlay extends ConsumerWidget {
               ],
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _duplicateBanner(LedgerState s, LedgerNotifier n) {
+    final count = s.duplicateRecurringCount;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+      decoration: BoxDecoration(
+        color: AppColors.amber.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(AppRadii.card),
+        border: Border.all(color: AppColors.amber.withValues(alpha: 0.5)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Symbols.merge_rounded, color: AppColors.amber, size: 20),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '$count possible duplicate${count == 1 ? '' : 's'}',
+                  style: AppText.ui(13.5, FontWeight.w700),
+                ),
+                const SizedBox(height: 2),
+                Text('Same name, amount & account.', style: AppText.muted12),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: n.mergeDuplicateRecurring,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 9),
+              decoration: BoxDecoration(
+                color: AppColors.amber,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                'Merge',
+                style: AppText.ui(13, FontWeight.w700, color: AppColors.screen),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

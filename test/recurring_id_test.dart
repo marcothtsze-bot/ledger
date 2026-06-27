@@ -77,4 +77,32 @@ void main() {
     expect(first.charges.every((c) => c.count == 1), isTrue); // not doubled
     expect(first.charges.map((c) => c.source.name).toSet(), {'Loan A', 'Loan B'});
   });
+
+  // Marco's real shape: a stray "Loan" sub duplicating the "Loan" installment,
+  // plus Home Fee/Education that merely collided ids (NOT duplicates).
+  LedgerState marcoLike() => LedgerState.empty().copyWith(
+        recurring: [
+          rec('u9', 'Loan', 1662, RecurringKind.installment, 'a4', total: 5),
+          rec('u9-2', 'Loan', 1662, RecurringKind.sub, 'a4'), // the stray
+          rec('u8', 'Loan', 4398, RecurringKind.installment, 'a4', total: 7),
+          rec('u7', 'Home Fee', 10000, RecurringKind.sub, 'a0'),
+          rec('u7-2', 'Education', 1300, RecurringKind.sub, 'a0'),
+        ],
+      );
+
+  test('detects only same name+amount+account as duplicates', () {
+    final s = marcoLike();
+    expect(s.duplicateRecurringGroups.length, 1); // only the two Loan-1662s
+    expect(s.duplicateRecurringCount, 1); // one item would be removed
+  });
+
+  test('merge drops the stray sub, keeps the installment + everything else', () {
+    final merged = marcoLike().mergeDuplicateRecurring();
+    expect(merged.recurring.length, 4); // 5 → 4
+    final loan1662 = merged.recurring.firstWhere((r) => r.amount == 1662);
+    expect(loan1662.kind, RecurringKind.installment); // kept the real plan
+    expect(merged.recurring.any((r) => r.name == 'Home Fee'), isTrue);
+    expect(merged.recurring.any((r) => r.name == 'Education'), isTrue);
+    expect(merged.recurring.any((r) => r.amount == 4398), isTrue);
+  });
 }

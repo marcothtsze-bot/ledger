@@ -710,6 +710,26 @@ class LedgerState {
   List<Recurring> get installments =>
       recurring.where((r) => r.kind == RecurringKind.installment).toList();
 
+  /// Recurring grouped where they look like accidental duplicates — same
+  /// normalised name, amount, and account. Only groups with more than one
+  /// member are returned. (Fallout from the old duplicate-id generator.)
+  List<List<Recurring>> get duplicateRecurringGroups {
+    final groups = <String, List<Recurring>>{};
+    for (final r in recurring) {
+      final key =
+          '${r.name.trim().toLowerCase()}|${r.amount}|${r.accountId ?? ''}';
+      (groups[key] ??= []).add(r);
+    }
+    return [
+      for (final g in groups.values)
+        if (g.length > 1) g,
+    ];
+  }
+
+  /// How many recurring would be removed by merging duplicates.
+  int get duplicateRecurringCount =>
+      duplicateRecurringGroups.fold(0, (sum, g) => sum + g.length - 1);
+
   bool get isTransfer => txnType == TxnType.transfer;
 
   /// Per-month figure for the installment preview (0 when no amount yet).
@@ -1444,6 +1464,32 @@ class LedgerState {
     return copyWith(
       recurring: recurring.where((r) => r.id != id).toList(),
       toast: 'Subscription cancelled',
+    );
+  }
+
+  /// Removes duplicate recurring (same name + amount + account), keeping the
+  /// most informative of each set — an installment plan (with paid progress)
+  /// over a plain subscription. One-tap cleanup for the old duplicate-id bug.
+  LedgerState mergeDuplicateRecurring() {
+    final dropIds = <String>{};
+    for (final g in duplicateRecurringGroups) {
+      final ranked = [...g]..sort((a, b) {
+        // An installment (a real plan) beats a plain subscription...
+        final ak = a.kind == RecurringKind.installment ? 0 : 1;
+        final bk = b.kind == RecurringKind.installment ? 0 : 1;
+        if (ak != bk) return ak - bk;
+        // ...then keep the more-progressed one.
+        return (b.paid ?? 0) - (a.paid ?? 0);
+      });
+      for (final r in ranked.skip(1)) {
+        dropIds.add(r.id);
+      }
+    }
+    if (dropIds.isEmpty) return this;
+    final n = dropIds.length;
+    return copyWith(
+      recurring: recurring.where((r) => !dropIds.contains(r.id)).toList(),
+      toast: 'Merged $n duplicate ${n == 1 ? 'item' : 'items'}',
     );
   }
 

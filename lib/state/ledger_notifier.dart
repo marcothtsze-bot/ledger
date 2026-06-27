@@ -400,6 +400,12 @@ class LedgerNotifier extends Notifier<LedgerState> {
     if (state.toast.isNotEmpty) _startToastTimer();
   }
 
+  void mergeDuplicateRecurring() {
+    state = state.mergeDuplicateRecurring();
+    _persist();
+    if (state.toast.isNotEmpty) _startToastTimer();
+  }
+
   // ---- Pay / settle an upcoming payment ----
   void openSettleRecurring(String id) =>
       state = state.copyWith(payRecurringId: id);
