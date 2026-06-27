@@ -163,6 +163,31 @@ List<Account> _accountsWithUniqueIds(List<Account> accounts) {
   return out;
 }
 
+/// Heals duplicate recurring ids (the old `u{txnId}` scheme could repeat an id
+/// when a sub was scheduled without posting a transaction, so two recurring
+/// shared one id — making the later one unmanageable and double-counting it on
+/// card statements). Each duplicate is reassigned a fresh `{id}-N` that dodges
+/// every other original id.
+List<Recurring> _recurringWithUniqueIds(List<Recurring> recurring) {
+  final original = recurring.map((r) => r.id).toSet();
+  final used = <String>{};
+  final out = <Recurring>[];
+  for (final r in recurring) {
+    if (used.add(r.id)) {
+      out.add(r);
+    } else {
+      var i = 2;
+      while (used.contains('${r.id}-$i') || original.contains('${r.id}-$i')) {
+        i++;
+      }
+      final id = '${r.id}-$i';
+      used.add(id);
+      out.add(r.copyWith(id: id));
+    }
+  }
+  return out;
+}
+
 /// The complete, immutable application state. Every transition returns a new
 /// instance (never mutates), and all the meaningful logic lives here as pure
 /// methods so it can be unit-tested without Flutter.
@@ -368,7 +393,7 @@ class LedgerState {
     return LedgerState.initial().copyWith(
       accounts: _accountsWithUniqueIds(s.accounts),
       transactions: s.transactions,
-      recurring: s.recurring,
+      recurring: _recurringWithUniqueIds(s.recurring),
       categories: cats,
       budgets: s.budgets,
       categoryId: draftCategoryId,
@@ -596,9 +621,11 @@ class LedgerState {
     }
     final last = closes.last;
     // For each recurring, project its charge dates forward and bin each onto the
-    // first statement that closes on or after it.
-    final counts = {for (final r in recs) r.id: List.filled(horizon, 0)};
-    for (final r in recs) {
+    // first statement that closes on or after it. Counts are keyed by list index
+    // (not id) so two recurring sharing an id can't collapse / double-count.
+    final counts = [for (final _ in recs) List.filled(horizon, 0)];
+    for (var ri = 0; ri < recs.length; ri++) {
+      final r = recs[ri];
       var d = r.nextDate;
       if (d == null) continue;
       final remaining = r.kind == RecurringKind.installment
@@ -610,16 +637,16 @@ class LedgerState {
         if (r.endDate != null && d.isAfter(r.endDate!)) break;
         produced++;
         final idx = closes.indexWhere((cl) => !cl.isBefore(d!));
-        if (idx >= 0) counts[r.id]![idx]++;
+        if (idx >= 0) counts[ri][idx]++;
         d = nextRecurringDate(d, r.freq);
       }
     }
     final out = <UpcomingStatement>[];
     for (var i = 0; i < horizon; i++) {
       final charges = [
-        for (final r in recs)
-          if (counts[r.id]![i] > 0)
-            StatementCharge(source: r, count: counts[r.id]![i]),
+        for (var ri = 0; ri < recs.length; ri++)
+          if (counts[ri][i] > 0)
+            StatementCharge(source: recs[ri], count: counts[ri][i]),
       ];
       if (charges.isEmpty) continue;
       final due = card.dueDay != null
@@ -704,6 +731,18 @@ class LedgerState {
       i++;
     }
     return 'a$i';
+  }
+
+  /// A new recurring id guaranteed not to collide with an existing one. The old
+  /// `u{txnId}` scheme repeated an id whenever a sub was scheduled without
+  /// posting a transaction, so two recurring could share an id.
+  String _uniqueRecurringId() {
+    final taken = recurring.map((r) => r.id).toSet();
+    var i = recurring.length;
+    while (taken.contains('u$i')) {
+      i++;
+    }
+    return 'u$i';
   }
 
   bool get hasActiveFilters =>
@@ -847,7 +886,7 @@ class LedgerState {
       final nd = nextRecurringDate(txnDate, 'Monthly');
       newRecurring = [
         Recurring(
-          id: 'u$txId',
+          id: _uniqueRecurringId(),
           name: pay,
           amount: per,
           freq: 'Installment',
@@ -897,7 +936,7 @@ class LedgerState {
     final cat = categoryById(categoryId);
     final due = DateTime(txnDate.year, txnDate.month, txnDate.day);
     final sched = Recurring(
-      id: 'u$_nextTxnId',
+      id: _uniqueRecurringId(),
       name: pay,
       amount: amt,
       freq: freq,
